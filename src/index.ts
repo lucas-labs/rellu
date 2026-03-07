@@ -2,6 +2,7 @@ import { analyzeRepository } from "./analyze.js";
 import { loadConfig } from "./config.js";
 import { writeActionOutputs } from "./output.js";
 import { maybeManageReleasePrs } from "./release-pr.js";
+import { coreClient } from "./toolkit/core-client.js";
 import { defaultLogger } from "./utils/log.js";
 
 async function run(): Promise<void> {
@@ -28,6 +29,5 @@ async function run(): Promise<void> {
 
 run().catch((error: unknown) => {
   const message = error instanceof Error ? (error.stack ?? error.message) : String(error);
-  console.error(message);
-  process.exitCode = 1;
+  coreClient.setFailed(message);
 });

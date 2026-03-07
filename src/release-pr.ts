@@ -1,100 +1,38 @@
-import type { Logger, ReleaseConfig, ReleasePrInfo, TargetResult } from "./types.js";
+import { createGitHubClient, parseRepoRef } from "./toolkit/github-client.js";
+import type { GitHubClient, GitHubPullRequest, GitHubRepoRef, Logger, ReleaseConfig, ReleasePrInfo, TargetResult } from "./types.js";
 import { runCommand } from "./utils/exec.js";
 import { writeManifestVersion } from "./version-files.js";
-
-interface GitHubRepoRef {
-  owner: string;
-  name: string;
-}
-
-interface GitHubPullRequest {
-  number: number;
-  html_url: string;
-  title: string;
-  head?: {
-    ref?: string;
-  };
-}
-
-function parseRepo(repo: string): GitHubRepoRef | null {
-  const [owner, name] = repo.split("/");
-  if (!owner || !name) {
-    return null;
-  }
-  return { owner, name };
-}
-
-async function githubRequest<TResponse>(
-  apiBase: string,
-  token: string,
-  method: "GET" | "POST" | "PATCH",
-  endpoint: string,
-  body?: unknown
-): Promise<TResponse> {
-  const requestInit: RequestInit = {
-    method,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: "application/vnd.github+json",
-      "User-Agent": "rellu-action",
-      "Content-Type": "application/json"
-    },
-    body: body === undefined ? null : JSON.stringify(body)
-  };
-
-  const response = await fetch(`${apiBase.replace(/\/+$/u, "")}${endpoint}`, {
-    ...requestInit
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`GitHub API ${method} ${endpoint} failed (${response.status}): ${errorText}`);
-  }
-  if (response.status === 204) {
-    return null as TResponse;
-  }
-  return (await response.json()) as TResponse;
-}
 
 export function getReleaseBranchName(prefix: string, label: string): string {
   return `${prefix.replace(/\/+$/u, "")}/${label}`;
 }
 
 async function findOpenReleasePr(
+  githubClient: GitHubClient,
   repo: GitHubRepoRef,
-  apiBase: string,
-  token: string,
   branch: string,
   base: string,
   titlePrefix: string
 ): Promise<GitHubPullRequest | null> {
-  const params = new URLSearchParams({
+  const byBranch = await githubClient.listPulls(repo, {
     state: "open",
     head: `${repo.owner}:${branch}`,
-    base
+    base,
+    perPage: 100
   });
-
-  const byBranch = await githubRequest<GitHubPullRequest[]>(
-    apiBase,
-    token,
-    "GET",
-    `/repos/${repo.owner}/${repo.name}/pulls?${params.toString()}`
-  );
   if (Array.isArray(byBranch) && byBranch.length > 0) {
     return byBranch[0] ?? null;
   }
 
-  const openPulls = await githubRequest<GitHubPullRequest[]>(
-    apiBase,
-    token,
-    "GET",
-    `/repos/${repo.owner}/${repo.name}/pulls?state=open&base=${encodeURIComponent(base)}&per_page=100`
-  );
+  const openPulls = await githubClient.listPulls(repo, {
+    state: "open",
+    base,
+    perPage: 100
+  });
 
   return (
     openPulls.find(
-      (pull) =>
-        String(pull.head?.ref ?? "") === branch || String(pull.title ?? "").startsWith(titlePrefix)
+      (pull) => String(pull.headRef ?? "") === branch || String(pull.title ?? "").startsWith(titlePrefix)
     ) ?? null
   );
 }
@@ -125,6 +63,7 @@ async function regenerateReleaseBranch(
 }
 
 async function createOrUpdateReleasePr(
+  githubClient: GitHubClient,
   target: TargetResult,
   config: ReleaseConfig,
   repo: GitHubRepoRef,
@@ -136,51 +75,32 @@ async function createOrUpdateReleasePr(
 
   await regenerateReleaseBranch(config.baseBranch, branch, target, logger);
 
-  const existing = await findOpenReleasePr(
-    repo,
-    config.githubServerUrl,
-    config.githubToken,
-    branch,
-    config.baseBranch,
-    `release(${target.label})`
-  );
+  const existing = await findOpenReleasePr(githubClient, repo, branch, config.baseBranch, `release(${target.label})`);
 
   if (existing) {
-    const updated = await githubRequest<GitHubPullRequest>(
-      config.githubServerUrl,
-      config.githubToken,
-      "PATCH",
-      `/repos/${repo.owner}/${repo.name}/pulls/${existing.number}`,
-      { title, body }
-    );
+    const updated = await githubClient.updatePull(repo, existing.number, { title, body });
     return {
       enabled: true,
       branch,
       title,
       number: updated.number,
-      url: updated.html_url
+      url: updated.htmlUrl
     };
   }
 
-  const created = await githubRequest<GitHubPullRequest>(
-    config.githubServerUrl,
-    config.githubToken,
-    "POST",
-    `/repos/${repo.owner}/${repo.name}/pulls`,
-    {
-      title,
-      head: branch,
-      base: config.baseBranch,
-      body
-    }
-  );
+  const created = await githubClient.createPull(repo, {
+    title,
+    head: branch,
+    base: config.baseBranch,
+    body
+  });
 
   return {
     enabled: true,
     branch,
     title,
     number: created.number,
-    url: created.html_url
+    url: created.htmlUrl
   };
 }
 
@@ -193,7 +113,7 @@ export async function maybeManageReleasePrs(
     return { updatedResults: results, anyCreatedOrUpdated: false };
   }
 
-  const repo = parseRepo(config.repo);
+  const repo = parseRepoRef(config.repo);
   if (!repo) {
     logger.warn("Release PR mode enabled but repository slug is missing. Skipping PR automation.");
     return { updatedResults: results, anyCreatedOrUpdated: false };
@@ -202,6 +122,8 @@ export async function maybeManageReleasePrs(
     logger.warn("Release PR mode enabled but GITHUB_TOKEN is missing. Skipping PR automation.");
     return { updatedResults: results, anyCreatedOrUpdated: false };
   }
+
+  const githubClient = createGitHubClient(config.githubToken, config.githubServerUrl);
 
   let anyCreatedOrUpdated = false;
   const updatedResults: TargetResult[] = [];
@@ -226,9 +148,13 @@ export async function maybeManageReleasePrs(
     logger.info(
       `Managing release PR for ${result.label} on branch ${getReleaseBranchName(config.releaseBranchPrefix, result.label)}`
     );
-    const releasePr = await createOrUpdateReleasePr(result, config, repo, logger);
-    updatedResults.push({ ...result, releasePr });
-    anyCreatedOrUpdated = true;
+    try {
+      const releasePr = await createOrUpdateReleasePr(githubClient, result, config, repo, logger);
+      updatedResults.push({ ...result, releasePr });
+      anyCreatedOrUpdated = true;
+    } catch (error) {
+      throw new Error(`Failed managing release PR for target "${result.label}": ${String(error)}`);
+    }
   }
 
   return { updatedResults, anyCreatedOrUpdated };

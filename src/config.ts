@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { coreClient } from "./toolkit/core-client.js";
 import type { BumpLevel, NoBumpPolicy, RelluConfig, TargetConfig, VersionSource } from "./types.js";
 import { globToRegExp, toPosixPath } from "./utils/paths.js";
 
@@ -42,8 +43,7 @@ const DEFAULT_BUMP_RULES: Record<string, BumpLevel> = {
 };
 
 function readInput(name: string): string {
-  const normalized = name.replace(/[ -]/g, "_").toUpperCase();
-  return String(process.env[`INPUT_${normalized}`] ?? "").trim();
+  return coreClient.getInput(name);
 }
 
 function toBoolean(value: string, fallback: boolean): boolean {
@@ -199,7 +199,10 @@ export function loadConfig(): RelluConfig {
   const baseBranch = readInput("base-branch") || asOptionalString(fileConfig.baseBranch) || "main";
   const repo = readInput("repo") || asOptionalString(fileConfig.repo) || asOptionalString(process.env.GITHUB_REPOSITORY);
   const githubServerUrl = readInput("github-server-url") || asOptionalString(fileConfig.githubServerUrl) || "https://api.github.com";
-  const githubToken = asOptionalString(process.env.GITHUB_TOKEN) || asOptionalString(process.env.INPUT_GITHUB_TOKEN);
+  const githubToken =
+    readInput("github-token") ||
+    asOptionalString(process.env.GITHUB_TOKEN) ||
+    asOptionalString(process.env.INPUT_GITHUB_TOKEN);
 
   return {
     fromRef,

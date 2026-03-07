@@ -1,18 +1,8 @@
 import fs from "node:fs";
+import { createGitHubClient, parseRepoRef } from "./toolkit/github-client.js";
 import type { Logger, RawCommit, ResolvedGitRange } from "./types.js";
 import { runCommand } from "./utils/exec.js";
 import { toPosixPath, uniqueSortedPosix } from "./utils/paths.js";
-
-interface GitHubCommitResponse {
-  author?: {
-    login?: string | null;
-  } | null;
-}
-
-interface GitHubRepoRef {
-  owner: string;
-  name: string;
-}
 
 function trimTrailingNewline(value: string): string {
   return value.replace(/\r?\n$/u, "");
@@ -119,29 +109,6 @@ export async function collectCommitsInRange(range: string, logger: Logger): Prom
   return commits;
 }
 
-function parseRepo(repo: string): GitHubRepoRef | null {
-  const [owner, name] = repo.split("/");
-  if (!owner || !name) {
-    return null;
-  }
-  return { owner, name };
-}
-
-async function githubGet(apiBase: string, token: string, endpoint: string): Promise<GitHubCommitResponse> {
-  const response = await fetch(`${apiBase.replace(/\/+$/u, "")}${endpoint}`, {
-    method: "GET",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: "application/vnd.github+json",
-      "User-Agent": "rellu-action"
-    }
-  });
-  if (!response.ok) {
-    throw new Error(`GitHub API request failed (${response.status}) for ${endpoint}`);
-  }
-  return (await response.json()) as GitHubCommitResponse;
-}
-
 export async function enrichCommitsWithGitHubUsernames(
   commits: RawCommit[],
   repo: string,
@@ -152,16 +119,16 @@ export async function enrichCommitsWithGitHubUsernames(
   if (!token) {
     return commits;
   }
-  const parsed = parseRepo(repo);
+  const parsed = parseRepoRef(repo);
   if (!parsed) {
     return commits;
   }
+  const githubClient = createGitHubClient(token, apiBase);
 
   const updated: RawCommit[] = [];
   for (const commit of commits) {
     try {
-      const payload = await githubGet(apiBase, token, `/repos/${parsed.owner}/${parsed.name}/commits/${commit.sha}`);
-      const username = String(payload.author?.login ?? "").trim();
+      const username = (await githubClient.getCommitAuthorLogin(parsed, commit.sha)).trim();
       updated.push({
         ...commit,
         githubUsername: username

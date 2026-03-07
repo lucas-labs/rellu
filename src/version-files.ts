@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { ensureParentDirectory } from "./toolkit/io-client.js";
 import type { ManifestType } from "./types.js";
 
 interface JsonRecord {
@@ -15,7 +16,9 @@ async function readText(filePath: string): Promise<string> {
 }
 
 async function writeText(filePath: string, content: string): Promise<void> {
-  await fs.writeFile(path.resolve(filePath), content, "utf8");
+  const absolute = path.resolve(filePath);
+  await ensureParentDirectory(absolute);
+  await fs.writeFile(absolute, content, "utf8");
 }
 
 function parseJsonRecord(text: string, filePath: string): JsonRecord {

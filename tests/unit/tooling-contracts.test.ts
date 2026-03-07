@@ -22,6 +22,11 @@ test("package scripts are Bun-based and build uses tsdown", async () => {
   expect(String(pkg.scripts.build ?? "")).toMatch(/\btsdown\b/u);
   expect(pkg.scripts.typecheck).toBe("tsc --project tsconfig.json --noEmit");
   expect(pkg.scripts.test).toBe("bun test");
+  const deps = pkg.dependencies ?? {};
+  expect(typeof deps["@actions/core"]).toBe("string");
+  expect(typeof deps["@actions/github"]).toBe("string");
+  expect(typeof deps["@actions/io"]).toBe("string");
+  expect(typeof deps["@actions/exec"]).toBe("string");
 });
 
 test("tsconfig enforces strict no-implicit-any guards", async () => {

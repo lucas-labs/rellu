@@ -1,4 +1,4 @@
-import fs from "node:fs";
+import { coreClient } from "./toolkit/core-client.js";
 
 interface ActionOutputPayload {
   changedTargets: string[];
@@ -8,14 +8,7 @@ interface ActionOutputPayload {
 }
 
 export function setOutput(name: string, value: string): void {
-  const outputFile = process.env.GITHUB_OUTPUT;
-  if (!outputFile) {
-    console.log(`::set-output name=${name}::${value}`);
-    return;
-  }
-
-  const block = `${name}<<__RELLU_EOF__\n${value}\n__RELLU_EOF__\n`;
-  fs.appendFileSync(outputFile, block, "utf8");
+  coreClient.setOutput(name, value);
 }
 
 export function writeActionOutputs(payload: ActionOutputPayload): void {

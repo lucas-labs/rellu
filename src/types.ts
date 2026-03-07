@@ -36,10 +36,25 @@ export interface Logger {
   error(message: string): void;
 }
 
+export interface CoreClient {
+  getInput(name: string): string;
+  setOutput(name: string, value: string): void;
+  info(message: string): void;
+  warn(message: string): void;
+  error(message: string): void;
+  setFailed(message: string): void;
+}
+
 export interface CommandResult {
   stdout: string;
   stderr: string;
   code: number;
+}
+
+export interface CommandOptions {
+  cwd?: string;
+  env?: NodeJS.ProcessEnv;
+  silent?: boolean;
 }
 
 export interface ResolvedGitRange {
@@ -147,4 +162,46 @@ export interface ReleaseConfig {
   repo: string;
   githubServerUrl: string;
   githubToken: string;
+}
+
+export interface GitHubRepoRef {
+  owner: string;
+  name: string;
+}
+
+export interface GitHubPullRequest {
+  number: number;
+  htmlUrl: string;
+  title: string;
+  headRef: string;
+}
+
+export interface GitHubListPullsOptions {
+  base: string;
+  state?: "open" | "closed" | "all";
+  head?: string;
+  perPage?: number;
+}
+
+export interface GitHubCreatePullOptions {
+  title: string;
+  head: string;
+  base: string;
+  body: string;
+}
+
+export interface GitHubUpdatePullOptions {
+  title?: string;
+  body?: string;
+}
+
+export interface GitHubClient {
+  listPulls(repo: GitHubRepoRef, options: GitHubListPullsOptions): Promise<GitHubPullRequest[]>;
+  createPull(repo: GitHubRepoRef, options: GitHubCreatePullOptions): Promise<GitHubPullRequest>;
+  updatePull(
+    repo: GitHubRepoRef,
+    pullNumber: number,
+    options: GitHubUpdatePullOptions
+  ): Promise<GitHubPullRequest>;
+  getCommitAuthorLogin(repo: GitHubRepoRef, sha: string): Promise<string>;
 }

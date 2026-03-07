@@ -1,13 +1,14 @@
 import type { Logger } from "../types.js";
+import { coreClient } from "../toolkit/core-client.js";
 
 export const defaultLogger: Logger = {
   info(message: string) {
-    console.log(message);
+    coreClient.info(message);
   },
   warn(message: string) {
-    console.warn(message);
+    coreClient.warn(message);
   },
   error(message: string) {
-    console.error(message);
+    coreClient.error(message);
   }
 };

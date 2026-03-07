@@ -13,7 +13,7 @@ Rellu is a JavaScript GitHub Action for monorepos that:
 Use full git history so ref resolution and commit collection are reliable:
 
 ```yaml
-- uses: actions/checkout@v4
+- uses: actions/checkout@v6.0.2
   with:
     fetch-depth: 0
 ```
@@ -125,7 +125,7 @@ jobs:
   analyze:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6.0.2
         with:
           fetch-depth: 0
 
@@ -151,6 +151,17 @@ jobs:
 - Release branches are automation-owned. Manual branch edits can be overwritten.
 - Release PR mode force-pushes release branches after regenerating from the latest base branch.
 - Targets skipped by `no-bump-policy: skip` do not create/update release PRs.
+
+## Runtime Toolkit Conventions
+
+Rellu delegates action-runtime integration concerns to official toolkit packages:
+
+- `@actions/core`: input resolution, output emission, logging, and failure signaling
+- `@actions/github`: authenticated GitHub API operations for release PR automation and commit author enrichment
+- `@actions/exec`: command execution paths (for example git command invocations)
+- `@actions/io`: supported runner-oriented filesystem helper operations
+
+Domain logic (target analysis, bump resolution, changelog generation) remains toolkit-agnostic.
 
 ## Local Development
 
