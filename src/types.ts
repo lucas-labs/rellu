@@ -148,6 +148,12 @@ export interface TargetResult {
   releasePr?: ReleasePrInfo;
 }
 
+export interface ResultJsonEnvelope {
+  range: string;
+  commitCount: number;
+  results: TargetResult[];
+}
+
 export interface AnalyzeRepositoryResult {
   range: string;
   commitCount: number;

@@ -3,6 +3,7 @@ import { loadConfig } from "./config.js";
 import { writeActionOutputs } from "./output.js";
 import { maybeManageReleasePrs } from "./release-pr.js";
 import { coreClient } from "./toolkit/core-client.js";
+import type { ResultJsonEnvelope } from "./types.js";
 import { defaultLogger } from "./utils/log.js";
 
 async function run(): Promise<void> {
@@ -16,7 +17,12 @@ async function run(): Promise<void> {
   const results = releaseOutcome.updatedResults;
 
   const changedTargets = results.filter((result) => result.changed).map((result) => result.label);
-  const resultJson = JSON.stringify(results, null, 2);
+  const resultEnvelope: ResultJsonEnvelope = {
+    range: analysis.range,
+    commitCount: analysis.commitCount,
+    results
+  };
+  const resultJson = JSON.stringify(resultEnvelope, null, 2);
   writeActionOutputs({
     changedTargets,
     hasChanges: changedTargets.length > 0,

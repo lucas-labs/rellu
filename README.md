@@ -163,7 +163,7 @@ Unsupported Python layouts fail with a clear error.
 | --- | --- |
 | `changed-targets` | JSON array of changed target labels |
 | `has-changes` | `true` when at least one target changed |
-| `result-json` | Full per-target analysis JSON payload |
+| `result-json` | Analysis JSON envelope with `range`, top-level `commitCount`, and `results` |
 | `release-prs-created` | `true` when release PR mode created/updated at least one PR |
 
 `repo` must be exactly `owner/name` when release PR mode is enabled. Malformed values (for example `owner/name/extra`, `/name`, or `owner/`) fail fast.
@@ -173,52 +173,66 @@ Unsupported Python layouts fail with a clear error.
 `strict-conventional-commits: "true"` validates relevant non-merge commits as conventional commits.  
 Non-conventional merge subjects (for example `Merge pull request ...`) are still included in deterministic impact analysis but do not fail strict mode by themselves.
 
-### Result JSON Shape (per target)
+### Result JSON Shape (analysis envelope)
 
 ```json
 {
-  "label": "app-1",
-  "changed": true,
-  "currentVersion": "1.2.3",
-  "nextVersion": "1.2.4",
-  "bump": "patch",
-  "matchedFiles": ["apps/app1/src/index.ts"],
-  "commits": [
+  "range": "from-sha..to-sha",
+  "commitCount": 12,
+  "results": [
     {
-      "sha": "abc123",
-      "type": "fix",
-      "scope": "api",
-      "description": "handle null config",
-      "isBreaking": false,
-      "author": {
-        "name": "Jane Doe",
-        "username": "janedoe",
-        "display": "@janedoe"
+      "label": "app-1",
+      "changed": true,
+      "currentVersion": "1.2.3",
+      "nextVersion": "1.2.4",
+      "bump": "patch",
+      "matchedFiles": ["apps/app1/src/index.ts"],
+      "commits": [
+        {
+          "sha": "abc123",
+          "type": "fix",
+          "scope": "api",
+          "description": "handle null config",
+          "isBreaking": false,
+          "author": {
+            "name": "Jane Doe",
+            "username": "janedoe",
+            "display": "@janedoe"
+          }
+        }
+      ],
+      "changelog": {
+        "markdown": "## Bug Fixes\n- handle null config (thanks @janedoe) ([abc123](...))"
+      },
+      "releasePr": {
+        "enabled": true,
+        "branch": "rellu/release/app-1",
+        "title": "release(app-1): v1.2.4",
+        "number": 123,
+        "url": "https://github.com/org/repo/pull/123"
       }
     }
-  ],
-  "changelog": {
-    "markdown": "## Bug Fixes\n- handle null config (thanks @janedoe) ([abc123](...))"
-  },
-  "releasePr": {
-    "enabled": true,
-    "branch": "rellu/release/app-1",
-    "title": "release(app-1): v1.2.4",
-    "number": 123,
-    "url": "https://github.com/org/repo/pull/123"
-  }
+  ]
 }
 ```
 
-When release PR mode is enabled but a target is non-releasable, `releasePr` is present as disabled metadata and does not include PR identity fields:
+The previous array-only `result-json` contract is replaced. Downstream consumers should parse `result-json.results` for per-target entries.
+
+When release PR mode is enabled but a target is non-releasable, the target entry inside `results` reports disabled metadata and does not include PR identity fields:
 
 ```json
 {
-  "label": "app-2",
-  "changed": true,
-  "releasePr": {
-    "enabled": false
-  }
+  "range": "from-sha..to-sha",
+  "commitCount": 12,
+  "results": [
+    {
+      "label": "app-2",
+      "changed": true,
+      "releasePr": {
+        "enabled": false
+      }
+    }
+  ]
 }
 ```
 

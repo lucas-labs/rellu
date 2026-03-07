@@ -4,22 +4,26 @@
 TBD - created by archiving change build-rellu-github-action. Update Purpose after archive.
 ## Requirements
 ### Requirement: Action outputs SHALL expose top-level release analysis state
-The action SHALL emit `changed-targets`, `has-changes`, and `result-json` outputs for every run, and SHALL emit `release-prs-created` when release PR mode is enabled.
+The action SHALL emit `changed-targets`, `has-changes`, and `result-json` outputs for every run, and SHALL emit `release-prs-created` when release PR mode is enabled. `result-json` SHALL contain analysis-level metadata (`range`, `commitCount`) and target results.
 
 #### Scenario: Outputs are produced for changed targets
 - **WHEN** two targets are detected as changed
-- **THEN** `changed-targets` contains both labels, `has-changes` is `true`, and `result-json` contains both target result objects
+- **THEN** `changed-targets` contains both labels, `has-changes` is `true`, and `result-json` contains analysis-level metadata plus both target result objects
+
+#### Scenario: Outputs include analysis range context
+- **WHEN** analysis runs over a resolved git range
+- **THEN** `result-json` includes that resolved `range` value and total analyzed `commitCount`
 
 ### Requirement: Result JSON SHALL include complete per-target analysis fields
-Each target object in `result-json` MUST include label, changed state, matched files, bump outcome, current and next versions, relevant commits, rendered changelog markdown, and release PR metadata when applicable. Release PR metadata MUST represent actual per-target PR state and MUST NOT indicate `enabled=true` for targets where no release PR was created or updated.
+`result-json` MUST be a JSON object containing `range`, top-level `commitCount`, and `results` (array of target objects). Each target object in `results` MUST include label, changed state, matched files, bump outcome, current and next versions, relevant commits, rendered changelog markdown, and release PR metadata when applicable.
 
 #### Scenario: Target JSON contains required analysis fields
 - **WHEN** a target has releasable changes
-- **THEN** its JSON object includes `label`, `changed`, `matchedFiles`, `bump`, `currentVersion`, `nextVersion`, `commits`, and `changelog.markdown`
+- **THEN** its object inside `results` includes `label`, `changed`, `matchedFiles`, `bump`, `currentVersion`, `nextVersion`, `commits`, and `changelog.markdown`
 
-#### Scenario: Skipped target release PR metadata reflects no PR activity
-- **WHEN** release PR mode is active and a target is skipped as non-releasable
-- **THEN** the target output does not present release PR metadata that implies a PR was created or updated
+#### Scenario: Analysis envelope keys are present
+- **WHEN** the action emits `result-json`
+- **THEN** the JSON object includes `range`, `commitCount`, and `results`
 
 ### Requirement: Changelog rendering SHALL group commits by category
 The system SHALL render markdown changelog sections using category mappings based on parsed conventional commit types. Category mapping and section ordering SHALL be user-configurable, and the system SHALL apply a sensible default mapping/order when no custom configuration is provided.
@@ -61,3 +65,4 @@ For identical refs, config, and repository state, the rendered markdown and JSON
 #### Scenario: Repeated run over same refs with custom mapping
 - **WHEN** the action runs twice against identical commit range and identical changelog mapping/order configuration
 - **THEN** output values are identical across both runs
+

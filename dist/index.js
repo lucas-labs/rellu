@@ -22995,7 +22995,12 @@ async function run() {
 	const releaseOutcome = await maybeManageReleasePrs(config, analysis.results, defaultLogger);
 	const results = releaseOutcome.updatedResults;
 	const changedTargets = results.filter((result) => result.changed).map((result) => result.label);
-	const resultJson = JSON.stringify(results, null, 2);
+	const resultEnvelope = {
+		range: analysis.range,
+		commitCount: analysis.commitCount,
+		results
+	};
+	const resultJson = JSON.stringify(resultEnvelope, null, 2);
 	writeActionOutputs({
 		changedTargets,
 		hasChanges: changedTargets.length > 0,
