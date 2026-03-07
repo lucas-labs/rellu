@@ -4,7 +4,7 @@ author: "rellu"
 
 inputs:
   targets:
-    description: "JSON array of target configs (label, paths, version)"
+    description: "JSON array of target configs (label, paths, version, optional releasePr overrides)"
     required: false
   config-file:
     description: "Optional JSON configuration file path"
@@ -38,7 +38,7 @@ inputs:
     required: false
     default: "skip"
   create-release-prs:
-    description: "Enable release branch + release PR automation"
+    description: "Enable release branch + release PR automation globally (targets may opt out via target.releasePr.enabled=false)"
     required: false
     default: "false"
   release-branch-prefix:

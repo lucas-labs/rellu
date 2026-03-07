@@ -4,29 +4,41 @@
 TBD - created by archiving change build-rellu-github-action. Update Purpose after archive.
 ## Requirements
 ### Requirement: Release PR behavior SHALL be explicitly opt-in
-The system SHALL create or update release PRs only when `create-release-prs=true`; otherwise analysis outputs are produced without branch or PR mutations. Release PR opt-in configuration SHALL accept both native boolean config-file values and boolean strings.
+The system SHALL create or update release PRs only when release PR mode is enabled. Release PR mode MAY be enabled globally via `create-release-prs=true` and MAY be overridden per target via optional target `releasePr.enabled` settings.
 
-#### Scenario: Release PR mode is disabled
+#### Scenario: Release PR mode is disabled globally
 - **WHEN** the action runs with `create-release-prs=false`
 - **THEN** no release branch or PR create/update operations are executed
 
-#### Scenario: Native JSON boolean enables release PR mode
-- **WHEN** config-file sets `createReleasePrs` to boolean `true`
-- **THEN** release PR mode is enabled and eligible targets proceed through release PR automation
+#### Scenario: Target opts out while global release PR mode is enabled
+- **WHEN** `create-release-prs=true` and target `app-2` sets `releasePr.enabled=false`
+- **THEN** no release branch or PR create/update operations are executed for `app-2`
+
+#### Scenario: Target opts in while global release PR mode is enabled
+- **WHEN** `create-release-prs=true` and target `app-1` has `releasePr.enabled=true` or no target override
+- **THEN** release branch and PR operations are allowed for `app-1` when it is releasable
 
 ### Requirement: Release branch naming SHALL be deterministic per target
-For each releasable target, the release branch MUST use a stable naming convention derived from configured prefix and target label so one persistent PR can be reused.
+For each releasable target, the release branch MUST use a stable naming convention derived from configured prefix and target label so one persistent PR can be reused. The branch prefix SHALL resolve with precedence: target `releasePr.branchPrefix` first, then global `release-branch-prefix`.
 
-#### Scenario: Branch name is derived for target
-- **WHEN** target label is `app-1` and branch prefix is `rellu/release`
+#### Scenario: Branch name is derived for target using global prefix
+- **WHEN** target label is `app-1`, no target branch prefix override is set, and global branch prefix is `rellu/release`
 - **THEN** the release branch name resolves to `rellu/release/app-1`
 
+#### Scenario: Branch name is derived for target using target override prefix
+- **WHEN** target label is `app-1` and target `releasePr.branchPrefix` is `custom/release`
+- **THEN** the release branch name resolves to `custom/release/app-1`
+
 ### Requirement: Release branch update SHALL regenerate from base with one release commit
-When creating or updating a release PR, the system MUST reset branch content to latest base branch state, apply generated version updates, create exactly one release commit, and force-push the branch.
+When creating or updating a release PR, the system MUST reset branch content to latest base branch state, apply generated version updates, create exactly one release commit, and force-push the branch. Base branch selection SHALL resolve with precedence: target `releasePr.baseBranch` first, then global `base-branch`.
 
 #### Scenario: Existing release PR is refreshed
 - **WHEN** an open release PR already exists for a target
 - **THEN** old generated release commits are removed and a single new `release(<label>): v<nextVersion>` commit remains on the release branch
+
+#### Scenario: Target-specific base branch override is used
+- **WHEN** target `app-1` sets `releasePr.baseBranch=release-main` and global base branch is `main`
+- **THEN** release branch regeneration for `app-1` uses `release-main` as the base ref
 
 ### Requirement: Release PR metadata SHALL stay synchronized with analysis
 The system SHALL create or update PR title and body from computed target version and generated markdown changelog on every release PR run, and SHALL execute those GitHub read/write operations through an authenticated `@actions/github` client initialized from action runtime credentials.

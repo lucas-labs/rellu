@@ -9,6 +9,7 @@ import type {
   RangeStrategy,
   RelluConfig,
   TargetConfig,
+  TargetReleasePrConfig,
   VersionSource
 } from "./types.js";
 import { toPosixPath, validateGlobPattern } from "./utils/paths.js";
@@ -157,6 +158,58 @@ function loadConfigFile(filePath: string): ConfigFile {
   return asRecord(parsed);
 }
 
+function parseTargetReleasePrConfig(value: unknown, label: string): TargetReleasePrConfig {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Target "${label}" has invalid releasePr value. Expected an object.`);
+  }
+
+  const record = value as Record<string, unknown>;
+  const enabledRaw = record.enabled;
+  const branchPrefixRaw = record.branchPrefix ?? record["branch-prefix"];
+  const baseBranchRaw = record.baseBranch ?? record["base-branch"];
+
+  let enabled: boolean | undefined;
+  if (enabledRaw !== undefined) {
+    if (typeof enabledRaw === "boolean") {
+      enabled = enabledRaw;
+    } else if (typeof enabledRaw === "string") {
+      enabled = parseBooleanString(enabledRaw.trim(), `target "${label}" releasePr.enabled`);
+    } else {
+      throw new Error(`Target "${label}" has invalid releasePr.enabled. Expected boolean or "true"/"false".`);
+    }
+  }
+
+  let branchPrefix: string | undefined;
+  if (branchPrefixRaw !== undefined) {
+    if (typeof branchPrefixRaw !== "string") {
+      throw new Error(`Target "${label}" has invalid releasePr.branchPrefix. Expected non-empty string.`);
+    }
+    const normalized = branchPrefixRaw.trim();
+    if (!normalized) {
+      throw new Error(`Target "${label}" has invalid releasePr.branchPrefix. Expected non-empty string.`);
+    }
+    branchPrefix = normalized;
+  }
+
+  let baseBranch: string | undefined;
+  if (baseBranchRaw !== undefined) {
+    if (typeof baseBranchRaw !== "string") {
+      throw new Error(`Target "${label}" has invalid releasePr.baseBranch. Expected non-empty string.`);
+    }
+    const normalized = baseBranchRaw.trim();
+    if (!normalized) {
+      throw new Error(`Target "${label}" has invalid releasePr.baseBranch. Expected non-empty string.`);
+    }
+    baseBranch = normalized;
+  }
+
+  return {
+    ...(enabled !== undefined ? { enabled } : {}),
+    ...(branchPrefix ? { branchPrefix } : {}),
+    ...(baseBranch ? { baseBranch } : {})
+  };
+}
+
 function parseTarget(targetValue: unknown, index: number): TargetConfig {
   const target = asRecord(targetValue);
   const label = asOptionalString(target.label);
@@ -184,6 +237,9 @@ function parseTarget(targetValue: unknown, index: number): TargetConfig {
   const file = asOptionalString(version.file);
   const type = asOptionalString(version.type);
   const tagPrefix = asOptionalString(target.tagPrefix ?? target["tag-prefix"]);
+  const releasePrRaw = target.releasePr ?? target["release-pr"];
+  const parsedReleasePr = releasePrRaw !== undefined ? parseTargetReleasePrConfig(releasePrRaw, label) : undefined;
+  const releasePr = parsedReleasePr && Object.keys(parsedReleasePr).length > 0 ? parsedReleasePr : undefined;
   if (!file) {
     throw new Error(`Target "${label}" is missing version.file`);
   }
@@ -198,6 +254,7 @@ function parseTarget(targetValue: unknown, index: number): TargetConfig {
     label,
     paths: paths.map((entry) => toPosixPath(entry)),
     ...(tagPrefix ? { tagPrefix } : {}),
+    ...(releasePr ? { releasePr } : {}),
     version: {
       file: toPosixPath(file),
       type: type as VersionSource["type"]

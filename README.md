@@ -46,6 +46,11 @@ Use full git history so ref resolution and commit collection are reliable:
     "label": "app-1",
     "tagPrefix": "app-1@v",
     "paths": ["apps/app1/**/*", "packages/shared/**/*"],
+    "releasePr": {
+      "enabled": true,
+      "branchPrefix": "rellu/release",
+      "baseBranch": "main"
+    },
     "version": {
       "file": "apps/app1/package.json",
       "type": "node-package-json"
@@ -55,6 +60,9 @@ Use full git history so ref resolution and commit collection are reliable:
     "label": "app-2",
     "tagPrefix": "app-2@v",
     "paths": ["apps/app2/**/*", "packages/shared/**/*"],
+    "releasePr": {
+      "enabled": false
+    },
     "version": {
       "file": "apps/app2/Cargo.toml",
       "type": "rust-cargo-toml"
@@ -64,6 +72,12 @@ Use full git history so ref resolution and commit collection are reliable:
 ```
 
 `tagPrefix` is only required when `range-strategy` is `latest-tag-with-prefix`.
+`releasePr` is optional per target and only applies when global `create-release-prs` is enabled.
+
+Per-target release PR settings precedence is:
+1. `target.releasePr.*`
+2. global action/config values (`create-release-prs`, `release-branch-prefix`, `base-branch`)
+3. built-in defaults
 
 ## Target Path Glob Semantics
 

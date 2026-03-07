@@ -15,11 +15,18 @@ export interface VersionSource {
   type: ManifestType;
 }
 
+export interface TargetReleasePrConfig {
+  enabled?: boolean;
+  branchPrefix?: string;
+  baseBranch?: string;
+}
+
 export interface TargetConfig {
   label: string;
   paths: string[];
   version: VersionSource;
   tagPrefix?: string;
+  releasePr?: TargetReleasePrConfig;
 }
 
 export interface RelluConfig {
@@ -172,6 +179,7 @@ export interface ReleaseConfig {
   repo: string;
   githubServerUrl: string;
   githubToken: string;
+  targets?: TargetConfig[];
 }
 
 export interface GitHubRepoRef {

@@ -65,17 +65,17 @@ async function regenerateReleaseBranch(
 async function createOrUpdateReleasePr(
   githubClient: GitHubClient,
   target: TargetResult,
-  config: ReleaseConfig,
+  settings: ResolvedTargetReleasePrSettings,
   repo: GitHubRepoRef,
   logger: Logger
 ): Promise<ReleasePrInfo> {
-  const branch = getReleaseBranchName(config.releaseBranchPrefix, target.label);
+  const branch = getReleaseBranchName(settings.releaseBranchPrefix, target.label);
   const title = `release(${target.label}): v${target.nextVersion}`;
   const body = target.changelog.markdown || "_No changelog entries._";
 
-  await regenerateReleaseBranch(config.baseBranch, branch, target, logger);
+  await regenerateReleaseBranch(settings.baseBranch, branch, target, logger);
 
-  const existing = await findOpenReleasePr(githubClient, repo, branch, config.baseBranch, `release(${target.label})`);
+  const existing = await findOpenReleasePr(githubClient, repo, branch, settings.baseBranch, `release(${target.label})`);
 
   if (existing) {
     const updated = await githubClient.updatePull(repo, existing.number, { title, body });
@@ -91,7 +91,7 @@ async function createOrUpdateReleasePr(
   const created = await githubClient.createPull(repo, {
     title,
     head: branch,
-    base: config.baseBranch,
+    base: settings.baseBranch,
     body
   });
 
@@ -101,6 +101,22 @@ async function createOrUpdateReleasePr(
     title,
     number: created.number,
     url: created.htmlUrl
+  };
+}
+
+interface ResolvedTargetReleasePrSettings {
+  enabled: boolean;
+  releaseBranchPrefix: string;
+  baseBranch: string;
+}
+
+function resolveTargetReleasePrSettings(config: ReleaseConfig, targetLabel: string): ResolvedTargetReleasePrSettings {
+  const targetSettings = config.targets?.find((target) => target.label === targetLabel)?.releasePr;
+
+  return {
+    enabled: targetSettings?.enabled ?? true,
+    releaseBranchPrefix: targetSettings?.branchPrefix ?? config.releaseBranchPrefix,
+    baseBranch: targetSettings?.baseBranch ?? config.baseBranch
   };
 }
 
@@ -130,6 +146,18 @@ export async function maybeManageReleasePrs(
   const updatedResults: TargetResult[] = [];
 
   for (const result of results) {
+    const targetReleaseSettings = resolveTargetReleasePrSettings(config, result.label);
+    if (!targetReleaseSettings.enabled) {
+      logger.info(`Skipping release PR for ${result.label}: target releasePr.enabled=false.`);
+      updatedResults.push({
+        ...result,
+        releasePr: {
+          enabled: false
+        }
+      });
+      continue;
+    }
+
     const isReleasable = result.changed && result.nextVersion !== result.currentVersion && !result.skipRelease;
     if (!isReleasable) {
       if (result.changed) {
@@ -145,10 +173,10 @@ export async function maybeManageReleasePrs(
     }
 
     logger.info(
-      `Managing release PR for ${result.label} on branch ${getReleaseBranchName(config.releaseBranchPrefix, result.label)}`
+      `Managing release PR for ${result.label} on branch ${getReleaseBranchName(targetReleaseSettings.releaseBranchPrefix, result.label)}`
     );
     try {
-      const releasePr = await createOrUpdateReleasePr(githubClient, result, config, repo, logger);
+      const releasePr = await createOrUpdateReleasePr(githubClient, result, targetReleaseSettings, repo, logger);
       updatedResults.push({ ...result, releasePr });
       anyCreatedOrUpdated = true;
     } catch (error) {

@@ -22624,6 +22624,36 @@ function loadConfigFile(filePath) {
 	if (extension !== ".json") throw new Error(`Unsupported config file extension "${extension}". Use JSON config files.`);
 	return asRecord(parseJson(fs.readFileSync(absolute, "utf8")));
 }
+function parseTargetReleasePrConfig(value, label) {
+	if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`Target "${label}" has invalid releasePr value. Expected an object.`);
+	const record = value;
+	const enabledRaw = record.enabled;
+	const branchPrefixRaw = record.branchPrefix ?? record["branch-prefix"];
+	const baseBranchRaw = record.baseBranch ?? record["base-branch"];
+	let enabled;
+	if (enabledRaw !== void 0) if (typeof enabledRaw === "boolean") enabled = enabledRaw;
+	else if (typeof enabledRaw === "string") enabled = parseBooleanString(enabledRaw.trim(), `target "${label}" releasePr.enabled`);
+	else throw new Error(`Target "${label}" has invalid releasePr.enabled. Expected boolean or "true"/"false".`);
+	let branchPrefix;
+	if (branchPrefixRaw !== void 0) {
+		if (typeof branchPrefixRaw !== "string") throw new Error(`Target "${label}" has invalid releasePr.branchPrefix. Expected non-empty string.`);
+		const normalized = branchPrefixRaw.trim();
+		if (!normalized) throw new Error(`Target "${label}" has invalid releasePr.branchPrefix. Expected non-empty string.`);
+		branchPrefix = normalized;
+	}
+	let baseBranch;
+	if (baseBranchRaw !== void 0) {
+		if (typeof baseBranchRaw !== "string") throw new Error(`Target "${label}" has invalid releasePr.baseBranch. Expected non-empty string.`);
+		const normalized = baseBranchRaw.trim();
+		if (!normalized) throw new Error(`Target "${label}" has invalid releasePr.baseBranch. Expected non-empty string.`);
+		baseBranch = normalized;
+	}
+	return {
+		...enabled !== void 0 ? { enabled } : {},
+		...branchPrefix ? { branchPrefix } : {},
+		...baseBranch ? { baseBranch } : {}
+	};
+}
 function parseTarget(targetValue, index) {
 	const target = asRecord(targetValue);
 	const label = asOptionalString(target.label);
@@ -22643,12 +22673,16 @@ function parseTarget(targetValue, index) {
 	const file = asOptionalString(version.file);
 	const type = asOptionalString(version.type);
 	const tagPrefix = asOptionalString(target.tagPrefix ?? target["tag-prefix"]);
+	const releasePrRaw = target.releasePr ?? target["release-pr"];
+	const parsedReleasePr = releasePrRaw !== void 0 ? parseTargetReleasePrConfig(releasePrRaw, label) : void 0;
+	const releasePr = parsedReleasePr && Object.keys(parsedReleasePr).length > 0 ? parsedReleasePr : void 0;
 	if (!file) throw new Error(`Target "${label}" is missing version.file`);
 	if (!SUPPORTED_MANIFEST_TYPES.has(type)) throw new Error(`Target "${label}" has unsupported version.type "${type}". Supported: node-package-json, rust-cargo-toml, python-pyproject-toml.`);
 	return {
 		label,
 		paths: paths.map((entry) => toPosixPath(entry)),
 		...tagPrefix ? { tagPrefix } : {},
+		...releasePr ? { releasePr } : {},
 		version: {
 			file: toPosixPath(file),
 			type
@@ -22843,12 +22877,12 @@ async function regenerateReleaseBranch(baseBranch, branch, target, logger) {
 		`+${branch}`
 	]);
 }
-async function createOrUpdateReleasePr(githubClient, target, config, repo, logger) {
-	const branch = getReleaseBranchName(config.releaseBranchPrefix, target.label);
+async function createOrUpdateReleasePr(githubClient, target, settings, repo, logger) {
+	const branch = getReleaseBranchName(settings.releaseBranchPrefix, target.label);
 	const title = `release(${target.label}): v${target.nextVersion}`;
 	const body = target.changelog.markdown || "_No changelog entries._";
-	await regenerateReleaseBranch(config.baseBranch, branch, target, logger);
-	const existing = await findOpenReleasePr(githubClient, repo, branch, config.baseBranch, `release(${target.label})`);
+	await regenerateReleaseBranch(settings.baseBranch, branch, target, logger);
+	const existing = await findOpenReleasePr(githubClient, repo, branch, settings.baseBranch, `release(${target.label})`);
 	if (existing) {
 		const updated = await githubClient.updatePull(repo, existing.number, {
 			title,
@@ -22865,7 +22899,7 @@ async function createOrUpdateReleasePr(githubClient, target, config, repo, logge
 	const created = await githubClient.createPull(repo, {
 		title,
 		head: branch,
-		base: config.baseBranch,
+		base: settings.baseBranch,
 		body
 	});
 	return {
@@ -22874,6 +22908,14 @@ async function createOrUpdateReleasePr(githubClient, target, config, repo, logge
 		title,
 		number: created.number,
 		url: created.htmlUrl
+	};
+}
+function resolveTargetReleasePrSettings(config, targetLabel) {
+	const targetSettings = config.targets?.find((target) => target.label === targetLabel)?.releasePr;
+	return {
+		enabled: targetSettings?.enabled ?? true,
+		releaseBranchPrefix: targetSettings?.branchPrefix ?? config.releaseBranchPrefix,
+		baseBranch: targetSettings?.baseBranch ?? config.baseBranch
 	};
 }
 async function maybeManageReleasePrs(config, results, logger) {
@@ -22894,6 +22936,15 @@ async function maybeManageReleasePrs(config, results, logger) {
 	let anyCreatedOrUpdated = false;
 	const updatedResults = [];
 	for (const result of results) {
+		const targetReleaseSettings = resolveTargetReleasePrSettings(config, result.label);
+		if (!targetReleaseSettings.enabled) {
+			logger.info(`Skipping release PR for ${result.label}: target releasePr.enabled=false.`);
+			updatedResults.push({
+				...result,
+				releasePr: { enabled: false }
+			});
+			continue;
+		}
 		if (!(result.changed && result.nextVersion !== result.currentVersion && !result.skipRelease)) {
 			if (result.changed) logger.warn(`Skipping release PR for ${result.label}: non-releasable target under current policy.`);
 			updatedResults.push({
@@ -22902,9 +22953,9 @@ async function maybeManageReleasePrs(config, results, logger) {
 			});
 			continue;
 		}
-		logger.info(`Managing release PR for ${result.label} on branch ${getReleaseBranchName(config.releaseBranchPrefix, result.label)}`);
+		logger.info(`Managing release PR for ${result.label} on branch ${getReleaseBranchName(targetReleaseSettings.releaseBranchPrefix, result.label)}`);
 		try {
-			const releasePr = await createOrUpdateReleasePr(githubClient, result, config, repo, logger);
+			const releasePr = await createOrUpdateReleasePr(githubClient, result, targetReleaseSettings, repo, logger);
 			updatedResults.push({
 				...result,
 				releasePr
