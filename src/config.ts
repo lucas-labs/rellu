@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { coreClient } from "./toolkit/core-client.js";
-import type { BumpLevel, NoBumpPolicy, RelluConfig, TargetConfig, VersionSource } from "./types.js";
+import type { BumpLevel, NoBumpPolicy, RangeStrategy, RelluConfig, TargetConfig, VersionSource } from "./types.js";
 import { globToRegExp, toPosixPath } from "./utils/paths.js";
 
 type ConfigFile = Partial<{
@@ -10,6 +10,7 @@ type ConfigFile = Partial<{
   bumpRules: unknown;
   fromRef: unknown;
   toRef: unknown;
+  rangeStrategy: unknown;
   noBumpPolicy: unknown;
   strictConventionalCommits: unknown;
   createReleasePrs: unknown;
@@ -27,6 +28,11 @@ const SUPPORTED_MANIFEST_TYPES: ReadonlySet<VersionSource["type"]> = new Set([
 
 const SUPPORTED_BUMP_LEVELS: ReadonlySet<BumpLevel> = new Set(["major", "minor", "patch", "none"]);
 const SUPPORTED_NO_BUMP_POLICIES: ReadonlySet<NoBumpPolicy> = new Set(["skip", "keep", "patch"]);
+const SUPPORTED_RANGE_STRATEGIES: ReadonlySet<RangeStrategy> = new Set([
+  "explicit",
+  "latest-tag",
+  "latest-tag-with-prefix"
+]);
 
 const DEFAULT_BUMP_RULES: Record<string, BumpLevel> = {
   feat: "minor",
@@ -119,6 +125,7 @@ function parseTarget(targetValue: unknown, index: number): TargetConfig {
   const version = asRecord(target.version);
   const file = asOptionalString(version.file);
   const type = asOptionalString(version.type);
+  const tagPrefix = asOptionalString(target.tagPrefix ?? target["tag-prefix"]);
   if (!file) {
     throw new Error(`Target "${label}" is missing version.file`);
   }
@@ -132,6 +139,7 @@ function parseTarget(targetValue: unknown, index: number): TargetConfig {
   return {
     label,
     paths: paths.map((entry) => toPosixPath(entry)),
+    ...(tagPrefix ? { tagPrefix } : {}),
     version: {
       file: toPosixPath(file),
       type: type as VersionSource["type"]
@@ -183,8 +191,26 @@ export function loadConfig(): RelluConfig {
   const bumpRulesInput = rawBumpRules ? parseJson(rawBumpRules) : (fileConfig.bumpRules ?? {});
   const bumpRules = parseBumpRules(bumpRulesInput);
 
+  const rangeStrategyRaw =
+    (readInput("range-strategy") || asOptionalString(fileConfig.rangeStrategy) || "explicit") as RangeStrategy;
+  if (!SUPPORTED_RANGE_STRATEGIES.has(rangeStrategyRaw)) {
+    throw new Error(
+      `Invalid range-strategy "${rangeStrategyRaw}". Expected explicit, latest-tag, or latest-tag-with-prefix.`
+    );
+  }
+
   const fromRef = readInput("from-ref") || asOptionalString(fileConfig.fromRef);
   const toRef = readInput("to-ref") || asOptionalString(fileConfig.toRef) || "HEAD";
+
+  if (rangeStrategyRaw === "latest-tag-with-prefix") {
+    const missingPrefix = targets.filter((target) => !target.tagPrefix);
+    if (missingPrefix.length > 0) {
+      const labels = missingPrefix.map((target) => target.label).join(", ");
+      throw new Error(
+        `range-strategy latest-tag-with-prefix requires tagPrefix on every target. Missing: ${labels}`
+      );
+    }
+  }
 
   const noBumpPolicyRaw =
     (readInput("no-bump-policy") || asOptionalString(fileConfig.noBumpPolicy) || "skip") as NoBumpPolicy;
@@ -205,6 +231,7 @@ export function loadConfig(): RelluConfig {
     asOptionalString(process.env.INPUT_GITHUB_TOKEN);
 
   return {
+    rangeStrategy: rangeStrategyRaw,
     fromRef,
     toRef,
     strictConventionalCommits: toBoolean(strictRaw, false),

@@ -3,6 +3,7 @@ export type ManifestType = "node-package-json" | "rust-cargo-toml" | "python-pyp
 export type BumpLevel = "major" | "minor" | "patch" | "none";
 
 export type NoBumpPolicy = "skip" | "keep" | "patch";
+export type RangeStrategy = "explicit" | "latest-tag" | "latest-tag-with-prefix";
 
 export interface VersionSource {
   file: string;
@@ -13,9 +14,11 @@ export interface TargetConfig {
   label: string;
   paths: string[];
   version: VersionSource;
+  tagPrefix?: string;
 }
 
 export interface RelluConfig {
+  rangeStrategy: RangeStrategy;
   fromRef: string;
   toRef: string;
   strictConventionalCommits: boolean;
@@ -73,6 +76,7 @@ export interface RawCommit {
   files: string[];
   isMerge: boolean;
   githubUsername: string;
+  authorDisplay: string;
 }
 
 export interface ParsedConventionalCommit {
@@ -204,4 +208,5 @@ export interface GitHubClient {
     options: GitHubUpdatePullOptions
   ): Promise<GitHubPullRequest>;
   getCommitAuthorLogin(repo: GitHubRepoRef, sha: string): Promise<string>;
+  getUserLoginByEmail(email: string): Promise<string>;
 }

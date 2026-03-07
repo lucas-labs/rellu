@@ -23,15 +23,22 @@ test("invalid conventional commits become other in non-strict mode", () => {
   expect(parsed.valid).toBe(false);
   expect(normalizedCommitType(parsed)).toBe("other");
   expect(() =>
-    assertConventionalCommitValidity(parsed, false, "app-1", "abc123", "updated files")
+    assertConventionalCommitValidity(parsed, false, "app-1", "abc123", "updated files", { isMerge: false })
   ).not.toThrow();
 });
 
 test("strict mode throws on invalid conventional commits", () => {
   const parsed = parseConventionalCommit("updated files", "");
   expect(() =>
-    assertConventionalCommitValidity(parsed, true, "app-1", "abc123", "updated files")
+    assertConventionalCommitValidity(parsed, true, "app-1", "abc123", "updated files", { isMerge: false })
   ).toThrow(/Invalid conventional commit/);
+});
+
+test("strict mode ignores invalid merge subjects", () => {
+  const parsed = parseConventionalCommit("Merge pull request #123 from feature/x", "");
+  expect(() =>
+    assertConventionalCommitValidity(parsed, true, "app-1", "abc123", parsed.rawSubject, { isMerge: true })
+  ).not.toThrow();
 });
 
 test("resolveBumpFromCommits uses highest-priority bump", () => {

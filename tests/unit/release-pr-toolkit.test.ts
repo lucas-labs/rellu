@@ -37,7 +37,8 @@ test("release PR management uses toolkit GitHub client and syncs metadata", asyn
       listPulls: listPullsMock,
       updatePull: updatePullMock,
       createPull: createPullMock,
-      getCommitAuthorLogin: mock(async () => "")
+      getCommitAuthorLogin: mock(async () => ""),
+      getUserLoginByEmail: mock(async () => "")
     }));
     const parseRepoRefMock = mock(() => ({ owner: "acme", name: "rellu" }));
 

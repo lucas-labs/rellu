@@ -24,7 +24,8 @@ Use full git history so ref resolution and commit collection are reliable:
 | --- | --- | --- | --- |
 | `targets` | No | - | JSON array of targets (`label`, `paths`, `version`) |
 | `config-file` | No | - | Optional path to JSON config file |
-| `from-ref` | No | first commit | Start ref for analysis |
+| `from-ref` | No | first commit | Start ref for analysis when `range-strategy=explicit` |
+| `range-strategy` | No | `explicit` | `explicit`, `latest-tag`, or `latest-tag-with-prefix` |
 | `to-ref` | No | `HEAD` | End ref for analysis |
 | `strict-conventional-commits` | No | `false` | Fail when relevant commits are invalid |
 | `bump-rules` | No | defaults | JSON mapping of type -> bump (`major/minor/patch/none`) |
@@ -41,6 +42,7 @@ Use full git history so ref resolution and commit collection are reliable:
 [
   {
     "label": "app-1",
+    "tagPrefix": "app-1@v",
     "paths": ["apps/app1/**/*", "packages/shared/**/*"],
     "version": {
       "file": "apps/app1/package.json",
@@ -49,6 +51,7 @@ Use full git history so ref resolution and commit collection are reliable:
   },
   {
     "label": "app-2",
+    "tagPrefix": "app-2@v",
     "paths": ["apps/app2/**/*", "packages/shared/**/*"],
     "version": {
       "file": "apps/app2/Cargo.toml",
@@ -57,6 +60,16 @@ Use full git history so ref resolution and commit collection are reliable:
   }
 ]
 ```
+
+`tagPrefix` is only required when `range-strategy` is `latest-tag-with-prefix`.
+
+## Range Strategy Modes
+
+- `explicit`: uses `from-ref..to-ref` (defaults to first commit..`HEAD` when `from-ref` is omitted)
+- `latest-tag`: resolves `from` from the latest reachable tag, then analyzes `from..to-ref`
+- `latest-tag-with-prefix`: resolves `from` per target using each target's `tagPrefix`; if no matching tag exists for a target, that target falls back to first-commit..`to-ref` with a log message
+
+For monorepos, `latest-tag-with-prefix` avoids anchoring one target to another target's release tag.
 
 ## Supported Version Sources
 
@@ -74,6 +87,11 @@ Unsupported Python layouts fail with a clear error.
 | `has-changes` | `true` when at least one target changed |
 | `result-json` | Full per-target analysis JSON payload |
 | `release-prs-created` | `true` when release PR mode created/updated at least one PR |
+
+## Strict Mode and Merge Commits
+
+`strict-conventional-commits: "true"` validates relevant non-merge commits as conventional commits.  
+Non-conventional merge subjects (for example `Merge pull request ...`) are still included in deterministic impact analysis but do not fail strict mode by themselves.
 
 ### Result JSON Shape (per target)
 

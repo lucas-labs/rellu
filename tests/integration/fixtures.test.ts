@@ -35,8 +35,38 @@ test("fixture: strict mode fails for invalid conventional commits", async () => 
   const commits = await readJson("strict-invalid/commits.json");
   const invalid = parseConventionalCommit(commits[0].subject, commits[0].body);
   expect(() =>
-    assertConventionalCommitValidity(invalid, true, "app-1", commits[0].sha, commits[0].subject)
+    assertConventionalCommitValidity(invalid, true, "app-1", commits[0].sha, commits[0].subject, {
+      isMerge: false
+    })
   ).toThrow(/Invalid conventional commit/);
+});
+
+test("fixture: merge handling stays deterministic for target impact outputs", () => {
+  const targets = [
+    {
+      label: "app-1",
+      paths: ["apps/app1/**/*"],
+      version: { file: "apps/app1/package.json", type: "node-package-json" as const }
+    }
+  ];
+
+  const commits = [
+    {
+      sha: "a1",
+      files: ["apps/app1/src/a.ts"]
+    },
+    {
+      sha: "m1",
+      files: ["apps/app1/src/b.ts"]
+    }
+  ];
+
+  const first = analyzeTargetImpacts(targets, commits);
+  const second = analyzeTargetImpacts(targets, commits);
+  expect(JSON.stringify(first)).toBe(JSON.stringify(second));
+  expect(first[0]?.changed).toBe(true);
+  expect(first[0]?.matchedFiles).toEqual(["apps/app1/src/a.ts", "apps/app1/src/b.ts"]);
+  expect(first[0]?.commitCount).toBe(2);
 });
 
 test("fixture: release branch naming is deterministic and idempotent", async () => {

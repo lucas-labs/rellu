@@ -172,8 +172,8 @@ function normalizedCommitType(parsed) {
 	if (!parsed.valid || !parsed.type) return "other";
 	return parsed.type;
 }
-function assertConventionalCommitValidity(parsed, strict, targetLabel, sha, subject) {
-	if (!parsed.valid && strict) throw new Error(`Invalid conventional commit for target "${targetLabel}" in strict mode: ${sha} "${subject}"`);
+function assertConventionalCommitValidity(parsed, strict, targetLabel, sha, subject, options) {
+	if (!parsed.valid && strict && !options.isMerge) throw new Error(`Invalid conventional commit for target "${targetLabel}" in strict mode: ${sha} "${subject}"`);
 	return parsed;
 }
 function resolveBumpFromCommits(commits, bumpRules) {
@@ -18949,6 +18949,13 @@ function createGitHubClient(token, apiBase) {
 				ref: sha
 			});
 			return String(response.data.author?.login ?? "");
+		},
+		async getUserLoginByEmail(email) {
+			const response = await octokit.rest.search.users({
+				q: `${email} in:email`,
+				per_page: 1
+			});
+			return String(response.data.items[0]?.login ?? "");
 		}
 	};
 }
@@ -19692,6 +19699,10 @@ function uniqueSortedPosix(files) {
 function trimTrailingNewline(value) {
 	return value.replace(/\r?\n$/u, "");
 }
+function authorDisplay(authorName, githubUsername) {
+	if (githubUsername) return `@${githubUsername}`;
+	return authorName || "unknown";
+}
 async function resolveRef(ref) {
 	const { stdout } = await runCommand("git", [
 		"rev-parse",
@@ -19700,14 +19711,35 @@ async function resolveRef(ref) {
 	]);
 	return trimTrailingNewline(stdout).trim();
 }
+async function resolveFirstCommit(toRefSha) {
+	return trimTrailingNewline((await runCommand("git", [
+		"rev-list",
+		"--max-parents=0",
+		toRefSha
+	])).stdout).split(/\r?\n/u).map((line) => line.trim()).filter(Boolean)[0] ?? "";
+}
+async function listMergedTags(toRefSha) {
+	const { stdout } = await runCommand("git", [
+		"tag",
+		"--merged",
+		toRefSha,
+		"--sort=-creatordate"
+	]);
+	return stdout.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean);
+}
+async function resolveTagCommit(tagName) {
+	const { stdout } = await runCommand("git", [
+		"rev-list",
+		"-n",
+		"1",
+		tagName
+	]);
+	return trimTrailingNewline(stdout).trim();
+}
 async function resolveGitRange(fromRef, toRef, logger) {
 	const to = await resolveRef(toRef || "HEAD");
 	let from = fromRef;
-	if (!from) from = trimTrailingNewline((await runCommand("git", [
-		"rev-list",
-		"--max-parents=0",
-		to
-	])).stdout).split(/\r?\n/u).filter(Boolean)[0] ?? "";
+	if (!from) from = await resolveFirstCommit(to);
 	if (!from) throw new Error("Unable to resolve from-ref. Set input 'from-ref' explicitly.");
 	try {
 		from = await resolveRef(from);
@@ -19716,6 +19748,43 @@ async function resolveGitRange(fromRef, toRef, logger) {
 		throw error;
 	}
 	logger.info(`Resolved git range: ${from}..${to}`);
+	return {
+		from,
+		to,
+		expression: `${from}..${to}`
+	};
+}
+async function resolveLatestTagStart(toRefSha, logger, options) {
+	const allTags = await listMergedTags(toRefSha);
+	const latestTag = (options.tagPrefix ? allTags.filter((tagName) => tagName.startsWith(options.tagPrefix ?? "")) : allTags)[0] ?? "";
+	if (latestTag) {
+		const tagCommit = await resolveTagCommit(latestTag);
+		logger.info(options.tagPrefix ? `Resolved range start for target "${options.targetLabel}" from latest tag "${latestTag}" (prefix "${options.tagPrefix}").` : `Resolved range start from latest reachable tag "${latestTag}".`);
+		return tagCommit;
+	}
+	const firstCommit = await resolveFirstCommit(toRefSha);
+	if (!firstCommit) throw new Error(`Unable to resolve first commit for ${toRefSha}.`);
+	logger.info(options.tagPrefix ? `No matching tag found for target "${options.targetLabel}" with prefix "${options.tagPrefix}". Falling back to first commit ${firstCommit}.` : `No reachable tags found for ${toRefSha}. Falling back to first commit ${firstCommit}.`);
+	return firstCommit;
+}
+async function resolveGitRangeWithStrategy(options, logger) {
+	const to = await resolveRef(options.toRef || "HEAD");
+	if (options.strategy === "explicit") return resolveGitRange(options.fromRef, options.toRef, logger);
+	if (options.strategy === "latest-tag") {
+		const from = await resolveLatestTagStart(to, logger, { targetLabel: options.targetLabel });
+		logger.info(`Resolved git range for target "${options.targetLabel}" via latest-tag: ${from}..${to}`);
+		return {
+			from,
+			to,
+			expression: `${from}..${to}`
+		};
+	}
+	if (!options.tagPrefix) throw new Error(`Target "${options.targetLabel}" is missing tagPrefix for range-strategy latest-tag-with-prefix.`);
+	const from = await resolveLatestTagStart(to, logger, {
+		targetLabel: options.targetLabel,
+		tagPrefix: options.tagPrefix
+	});
+	logger.info(`Resolved git range for target "${options.targetLabel}" via latest-tag-with-prefix "${options.tagPrefix}": ${from}..${to}`);
 	return {
 		from,
 		to,
@@ -19780,7 +19849,8 @@ async function collectCommitsInRange(range, logger) {
 		commits.push({
 			...metadata,
 			files,
-			githubUsername: ""
+			githubUsername: "",
+			authorDisplay: authorDisplay(metadata.authorName, "")
 		});
 	}
 	logger.info(`Collected ${commits.length} commits from ${range}`);
@@ -19792,15 +19862,23 @@ async function enrichCommitsWithGitHubUsernames(commits, repo, apiBase, token, l
 	if (!parsed) return commits;
 	const githubClient = createGitHubClient(token, apiBase);
 	const updated = [];
-	for (const commit of commits) try {
-		const username = (await githubClient.getCommitAuthorLogin(parsed, commit.sha)).trim();
+	for (const commit of commits) {
+		let resolvedUsername = "";
+		try {
+			resolvedUsername = (await githubClient.getCommitAuthorLogin(parsed, commit.sha)).trim();
+		} catch (error) {
+			logger.warn(`Could not resolve associated GitHub username for commit ${commit.sha}: ${String(error)}`);
+		}
+		if (!resolvedUsername && commit.authorEmail) try {
+			resolvedUsername = (await githubClient.getUserLoginByEmail(commit.authorEmail)).trim();
+		} catch (error) {
+			logger.warn(`Could not resolve GitHub username by email for commit ${commit.sha} (${commit.authorEmail}): ${String(error)}`);
+		}
 		updated.push({
 			...commit,
-			githubUsername: username
+			githubUsername: resolvedUsername,
+			authorDisplay: authorDisplay(commit.authorName, resolvedUsername)
 		});
-	} catch (error) {
-		logger.warn(`Could not resolve GitHub username for commit ${commit.sha}: ${String(error)}`);
-		updated.push(commit);
 	}
 	return updated;
 }
@@ -19967,26 +20045,58 @@ async function writeManifestVersion(filePath, type, nextVersion) {
 
 //#endregion
 //#region src/analyze.ts
-function displayAuthor(commit) {
-	if (commit.githubUsername) return `@${commit.githubUsername}`;
-	return commit.authorName || "unknown";
+function rangeResolutionKey(config, target) {
+	if (config.rangeStrategy === "latest-tag-with-prefix") return `${config.rangeStrategy}:${config.toRef}:${target.tagPrefix ?? ""}`;
+	return `${config.rangeStrategy}:${config.fromRef}:${config.toRef}`;
+}
+function summarizeRanges(targetRanges) {
+	const uniqueExpressions = [...new Set(targetRanges.map((entry) => entry.expression))];
+	if (uniqueExpressions.length === 1) return uniqueExpressions[0] ?? "";
+	return targetRanges.map((entry) => `${entry.label}:${entry.expression}`).join(" | ");
 }
 async function analyzeRepository(config, logger) {
-	const range = await resolveGitRange(config.fromRef, config.toRef, logger);
-	const commits = await enrichCommitsWithGitHubUsernames(await collectCommitsInRange(range.expression, logger), config.repo, config.githubServerUrl, config.githubToken, logger);
-	const commitsWithConventional = commits.map((commit) => ({
-		...commit,
-		conventional: parseConventionalCommit(commit.subject, commit.body)
-	}));
-	const impacts = analyzeTargetImpacts(config.targets, commitsWithConventional);
-	const targetByLabel = new Map(config.targets.map((target) => [target.label, target]));
+	const resolvedRanges = /* @__PURE__ */ new Map();
+	const commitsByRangeExpression = /* @__PURE__ */ new Map();
+	const parsedCommitsByRangeExpression = /* @__PURE__ */ new Map();
+	const targetRanges = [];
+	const uniqueCommitShas = /* @__PURE__ */ new Set();
 	const results = [];
-	for (const impact of impacts) {
-		const target = targetByLabel.get(impact.label);
-		if (!target) continue;
+	for (const target of config.targets) {
+		const key = rangeResolutionKey(config, target);
+		let range = resolvedRanges.get(key);
+		if (!range) {
+			range = await resolveGitRangeWithStrategy({
+				strategy: config.rangeStrategy,
+				fromRef: config.fromRef,
+				toRef: config.toRef,
+				targetLabel: target.label,
+				...target.tagPrefix ? { tagPrefix: target.tagPrefix } : {}
+			}, logger);
+			resolvedRanges.set(key, range);
+		}
+		targetRanges.push({
+			label: target.label,
+			expression: range.expression
+		});
+		let commits = commitsByRangeExpression.get(range.expression);
+		if (!commits) {
+			commits = await enrichCommitsWithGitHubUsernames(await collectCommitsInRange(range.expression, logger), config.repo, config.githubServerUrl, config.githubToken, logger);
+			commitsByRangeExpression.set(range.expression, commits);
+			for (const commit of commits) uniqueCommitShas.add(commit.sha);
+		}
+		let commitsWithConventional = parsedCommitsByRangeExpression.get(range.expression);
+		if (!commitsWithConventional) {
+			commitsWithConventional = commits.map((commit) => ({
+				...commit,
+				conventional: parseConventionalCommit(commit.subject, commit.body)
+			}));
+			parsedCommitsByRangeExpression.set(range.expression, commitsWithConventional);
+		}
+		const impact = analyzeTargetImpacts([target], commitsWithConventional)[0];
+		if (!impact) continue;
 		const currentVersion = await readManifestVersion(target.version.file, target.version.type);
 		const relevantParsed = impact.relevantCommits.map((commit) => {
-			const parsed = assertConventionalCommitValidity(commit.conventional, config.strictConventionalCommits, target.label, commit.sha, commit.subject);
+			const parsed = assertConventionalCommitValidity(commit.conventional, config.strictConventionalCommits, target.label, commit.sha, commit.subject, { isMerge: commit.isMerge });
 			const normalizedType = normalizedCommitType(parsed);
 			return {
 				...commit,
@@ -20015,7 +20125,7 @@ async function analyzeRepository(config, logger) {
 			author: {
 				name: commit.authorName,
 				username: commit.githubUsername || "",
-				display: displayAuthor(commit)
+				display: commit.authorDisplay
 			}
 		}));
 		const changelogMarkdown = renderChangelog(outputCommits.map((entry) => ({
@@ -20042,8 +20152,8 @@ async function analyzeRepository(config, logger) {
 		logger.info(`Target ${target.label}: changed=${String(impact.changed)}, commits=${impact.commitCount}, bump=${policyOutcome.bump}, nextVersion=${nextVersion}`);
 	}
 	return {
-		range: range.expression,
-		commitCount: commits.length,
+		range: summarizeRanges(targetRanges),
+		commitCount: uniqueCommitShas.size,
 		results
 	};
 }
@@ -20769,6 +20879,11 @@ const SUPPORTED_NO_BUMP_POLICIES = new Set([
 	"keep",
 	"patch"
 ]);
+const SUPPORTED_RANGE_STRATEGIES = new Set([
+	"explicit",
+	"latest-tag",
+	"latest-tag-with-prefix"
+]);
 const DEFAULT_BUMP_RULES = {
 	feat: "minor",
 	fix: "patch",
@@ -20830,11 +20945,13 @@ function parseTarget(targetValue, index) {
 	const version = asRecord(target.version);
 	const file = asOptionalString(version.file);
 	const type = asOptionalString(version.type);
+	const tagPrefix = asOptionalString(target.tagPrefix ?? target["tag-prefix"]);
 	if (!file) throw new Error(`Target "${label}" is missing version.file`);
 	if (!SUPPORTED_MANIFEST_TYPES.has(type)) throw new Error(`Target "${label}" has unsupported version.type "${type}". Supported: node-package-json, rust-cargo-toml, python-pyproject-toml.`);
 	return {
 		label,
 		paths: paths.map((entry) => toPosixPath(entry)),
+		...tagPrefix ? { tagPrefix } : {},
 		version: {
 			file: toPosixPath(file),
 			type
@@ -20871,8 +20988,17 @@ function loadConfig() {
 	validateUniqueTargetLabels(targets);
 	const rawBumpRules = readInput("bump-rules");
 	const bumpRules = parseBumpRules(rawBumpRules ? parseJson(rawBumpRules) : fileConfig.bumpRules ?? {});
+	const rangeStrategyRaw = readInput("range-strategy") || asOptionalString(fileConfig.rangeStrategy) || "explicit";
+	if (!SUPPORTED_RANGE_STRATEGIES.has(rangeStrategyRaw)) throw new Error(`Invalid range-strategy "${rangeStrategyRaw}". Expected explicit, latest-tag, or latest-tag-with-prefix.`);
 	const fromRef = readInput("from-ref") || asOptionalString(fileConfig.fromRef);
 	const toRef = readInput("to-ref") || asOptionalString(fileConfig.toRef) || "HEAD";
+	if (rangeStrategyRaw === "latest-tag-with-prefix") {
+		const missingPrefix = targets.filter((target) => !target.tagPrefix);
+		if (missingPrefix.length > 0) {
+			const labels = missingPrefix.map((target) => target.label).join(", ");
+			throw new Error(`range-strategy latest-tag-with-prefix requires tagPrefix on every target. Missing: ${labels}`);
+		}
+	}
 	const noBumpPolicyRaw = readInput("no-bump-policy") || asOptionalString(fileConfig.noBumpPolicy) || "skip";
 	if (!SUPPORTED_NO_BUMP_POLICIES.has(noBumpPolicyRaw)) throw new Error(`Invalid no-bump-policy "${noBumpPolicyRaw}". Expected skip, keep, or patch.`);
 	const strictRaw = readInput("strict-conventional-commits") || asOptionalString(fileConfig.strictConventionalCommits);
@@ -20883,6 +21009,7 @@ function loadConfig() {
 	const githubServerUrl = readInput("github-server-url") || asOptionalString(fileConfig.githubServerUrl) || "https://api.github.com";
 	const githubToken = readInput("github-token") || asOptionalString(process.env.GITHUB_TOKEN) || asOptionalString(process.env.INPUT_GITHUB_TOKEN);
 	return {
+		rangeStrategy: rangeStrategyRaw,
 		fromRef,
 		toRef,
 		strictConventionalCommits: toBoolean(strictRaw, false),

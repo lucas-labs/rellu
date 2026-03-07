@@ -68,9 +68,12 @@ export function assertConventionalCommitValidity(
   strict: boolean,
   targetLabel: string,
   sha: string,
-  subject: string
+  subject: string,
+  options: {
+    isMerge: boolean;
+  }
 ): ParsedConventionalCommit {
-  if (!parsed.valid && strict) {
+  if (!parsed.valid && strict && !options.isMerge) {
     throw new Error(`Invalid conventional commit for target "${targetLabel}" in strict mode: ${sha} "${subject}"`);
   }
   return parsed;

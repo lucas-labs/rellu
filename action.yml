@@ -12,6 +12,10 @@ inputs:
   from-ref:
     description: "Start reference for git range"
     required: false
+  range-strategy:
+    description: "Range resolution strategy: explicit|latest-tag|latest-tag-with-prefix"
+    required: false
+    default: "explicit"
   to-ref:
     description: "End reference for git range"
     required: false

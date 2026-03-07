@@ -6,7 +6,7 @@ import {
   parseConventionalCommit,
   resolveBumpFromCommits
 } from "./commits.js";
-import { collectCommitsInRange, enrichCommitsWithGitHubUsernames, resolveGitRange } from "./git.js";
+import { collectCommitsInRange, enrichCommitsWithGitHubUsernames, resolveGitRangeWithStrategy } from "./git.js";
 import { calculateNextVersion } from "./semver.js";
 import { analyzeTargetImpacts } from "./targets.js";
 import type {
@@ -16,6 +16,7 @@ import type {
   ParsedConventionalCommit,
   RawCommit,
   RelluConfig,
+  TargetConfig,
   TargetResult
 } from "./types.js";
 import { readManifestVersion } from "./version-files.js";
@@ -24,36 +25,74 @@ interface CommitWithConventional extends RawCommit {
   conventional: ParsedConventionalCommit;
 }
 
-function displayAuthor(commit: Pick<RawCommit, "authorName" | "githubUsername">): string {
-  if (commit.githubUsername) {
-    return `@${commit.githubUsername}`;
+function rangeResolutionKey(config: RelluConfig, target: TargetConfig): string {
+  if (config.rangeStrategy === "latest-tag-with-prefix") {
+    return `${config.rangeStrategy}:${config.toRef}:${target.tagPrefix ?? ""}`;
   }
-  return commit.authorName || "unknown";
+  return `${config.rangeStrategy}:${config.fromRef}:${config.toRef}`;
+}
+
+function summarizeRanges(targetRanges: Array<{ label: string; expression: string }>): string {
+  const uniqueExpressions = [...new Set(targetRanges.map((entry) => entry.expression))];
+  if (uniqueExpressions.length === 1) {
+    return uniqueExpressions[0] ?? "";
+  }
+  return targetRanges.map((entry) => `${entry.label}:${entry.expression}`).join(" | ");
 }
 
 export async function analyzeRepository(config: RelluConfig, logger: Logger): Promise<AnalyzeRepositoryResult> {
-  const range = await resolveGitRange(config.fromRef, config.toRef, logger);
-  const rawCommits = await collectCommitsInRange(range.expression, logger);
-  const commits = await enrichCommitsWithGitHubUsernames(
-    rawCommits,
-    config.repo,
-    config.githubServerUrl,
-    config.githubToken,
-    logger
-  );
-
-  const commitsWithConventional: CommitWithConventional[] = commits.map((commit) => ({
-    ...commit,
-    conventional: parseConventionalCommit(commit.subject, commit.body)
-  }));
-
-  const impacts = analyzeTargetImpacts(config.targets, commitsWithConventional);
-  const targetByLabel = new Map(config.targets.map((target) => [target.label, target] as const));
+  const resolvedRanges = new Map<string, { from: string; to: string; expression: string }>();
+  const commitsByRangeExpression = new Map<string, RawCommit[]>();
+  const parsedCommitsByRangeExpression = new Map<string, CommitWithConventional[]>();
+  const targetRanges: Array<{ label: string; expression: string }> = [];
+  const uniqueCommitShas = new Set<string>();
 
   const results: TargetResult[] = [];
-  for (const impact of impacts) {
-    const target = targetByLabel.get(impact.label);
-    if (!target) {
+  for (const target of config.targets) {
+    const key = rangeResolutionKey(config, target);
+    let range = resolvedRanges.get(key);
+    if (!range) {
+      range = await resolveGitRangeWithStrategy(
+        {
+          strategy: config.rangeStrategy,
+          fromRef: config.fromRef,
+          toRef: config.toRef,
+          targetLabel: target.label,
+          ...(target.tagPrefix ? { tagPrefix: target.tagPrefix } : {})
+        },
+        logger
+      );
+      resolvedRanges.set(key, range);
+    }
+    targetRanges.push({ label: target.label, expression: range.expression });
+
+    let commits = commitsByRangeExpression.get(range.expression);
+    if (!commits) {
+      const rawCommits = await collectCommitsInRange(range.expression, logger);
+      commits = await enrichCommitsWithGitHubUsernames(
+        rawCommits,
+        config.repo,
+        config.githubServerUrl,
+        config.githubToken,
+        logger
+      );
+      commitsByRangeExpression.set(range.expression, commits);
+      for (const commit of commits) {
+        uniqueCommitShas.add(commit.sha);
+      }
+    }
+
+    let commitsWithConventional = parsedCommitsByRangeExpression.get(range.expression);
+    if (!commitsWithConventional) {
+      commitsWithConventional = commits.map((commit) => ({
+        ...commit,
+        conventional: parseConventionalCommit(commit.subject, commit.body)
+      }));
+      parsedCommitsByRangeExpression.set(range.expression, commitsWithConventional);
+    }
+
+    const impact = analyzeTargetImpacts([target], commitsWithConventional)[0];
+    if (!impact) {
       continue;
     }
     const currentVersion = await readManifestVersion(target.version.file, target.version.type);
@@ -64,7 +103,8 @@ export async function analyzeRepository(config: RelluConfig, logger: Logger): Pr
         config.strictConventionalCommits,
         target.label,
         commit.sha,
-        commit.subject
+        commit.subject,
+        { isMerge: commit.isMerge }
       );
       const normalizedType = normalizedCommitType(parsed);
       return {
@@ -103,7 +143,7 @@ export async function analyzeRepository(config: RelluConfig, logger: Logger): Pr
       author: {
         name: commit.authorName,
         username: commit.githubUsername || "",
-        display: displayAuthor(commit)
+        display: commit.authorDisplay
       }
     }));
 
@@ -142,8 +182,8 @@ export async function analyzeRepository(config: RelluConfig, logger: Logger): Pr
   }
 
   return {
-    range: range.expression,
-    commitCount: commits.length,
+    range: summarizeRanges(targetRanges),
+    commitCount: uniqueCommitShas.size,
     results
   };
 }
