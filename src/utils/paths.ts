@@ -1,43 +1,30 @@
-/**
- * @param {string} value
- * @returns {string}
- */
-export function toPosixPath(value) {
+export function toPosixPath(value: string): string {
   return value.replace(/\\/g, "/");
 }
 
-/**
- * @param {string} value
- * @returns {string}
- */
-function escapeRegex(value) {
+function escapeRegex(value: string): string {
   return value.replace(/[|\\{}()[\]^$+?.]/g, "\\$&");
 }
 
-/**
- * Converts a glob with *, **, ? into a path regex.
- * @param {string} glob
- * @returns {RegExp}
- */
-export function globToRegExp(glob) {
+export function globToRegExp(glob: string): RegExp {
   const normalized = toPosixPath(glob.trim());
   if (!normalized) {
     throw new Error("Glob cannot be empty");
   }
 
   let pattern = "^";
-  for (let i = 0; i < normalized.length; i += 1) {
-    const char = normalized[i];
-    const next = normalized[i + 1];
+  for (let index = 0; index < normalized.length; index += 1) {
+    const char = normalized[index] ?? "";
+    const next = normalized[index + 1];
 
     if (char === "*" && next === "*") {
-      const nextNext = normalized[i + 2];
+      const nextNext = normalized[index + 2];
       if (nextNext === "/") {
         pattern += "(?:.*/)?";
-        i += 2;
+        index += 2;
       } else {
         pattern += ".*";
-        i += 1;
+        index += 1;
       }
       continue;
     }
@@ -54,24 +41,15 @@ export function globToRegExp(glob) {
 
     pattern += escapeRegex(char);
   }
+
   pattern += "$";
   return new RegExp(pattern);
 }
 
-/**
- * @param {string} filePath
- * @param {string} glob
- * @returns {boolean}
- */
-export function isGlobMatch(filePath, glob) {
-  const normalizedFile = toPosixPath(filePath);
-  return globToRegExp(glob).test(normalizedFile);
+export function isGlobMatch(filePath: string, glob: string): boolean {
+  return globToRegExp(glob).test(toPosixPath(filePath));
 }
 
-/**
- * @param {string[]} files
- * @returns {string[]}
- */
-export function uniqueSortedPosix(files) {
+export function uniqueSortedPosix(files: string[]): string[] {
   return [...new Set(files.map(toPosixPath))].sort();
 }

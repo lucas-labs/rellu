@@ -1,14 +1,12 @@
-/**
- * @typedef {{
- *   sha: string;
- *   description: string;
- *   scope: string | null;
- *   type: string | null;
- *   displayAuthor: string;
- * }} ChangelogCommit
- */
+interface ChangelogCommit {
+  sha: string;
+  description: string;
+  scope: string | null;
+  type: string | null;
+  displayAuthor: string;
+}
 
-const DEFAULT_SECTIONS = new Map([
+const DEFAULT_SECTIONS = new Map<string, string>([
   ["feat", "Features"],
   ["fix", "Bug Fixes"],
   ["docs", "Documentation"],
@@ -22,12 +20,7 @@ const DEFAULT_SECTIONS = new Map([
   ["other", "Other"]
 ]);
 
-/**
- * @param {string} sha
- * @param {string} repo
- * @param {string} githubServerUrl
- */
-function formatSha(sha, repo, githubServerUrl) {
+function formatSha(sha: string, repo: string, githubServerUrl: string): string {
   const shortSha = sha.slice(0, 7);
   if (!repo) {
     return shortSha;
@@ -38,23 +31,12 @@ function formatSha(sha, repo, githubServerUrl) {
   return `[${shortSha}](${webBase}/${repo}/commit/${sha})`;
 }
 
-/**
- * @param {string | null} type
- * @returns {string}
- */
-function sectionForType(type) {
+function sectionForType(type: string | null): string {
   return DEFAULT_SECTIONS.get(type ?? "other") ?? "Other";
 }
 
-/**
- * @param {ChangelogCommit[]} commits
- * @param {string} repo
- * @param {string} githubServerUrl
- * @returns {string}
- */
-export function renderChangelog(commits, repo, githubServerUrl) {
-  /** @type {Map<string, string[]>} */
-  const groups = new Map();
+export function renderChangelog(commits: ChangelogCommit[], repo: string, githubServerUrl: string): string {
+  const groups = new Map<string, string[]>();
 
   for (const commit of commits) {
     const section = sectionForType(commit.type);
@@ -64,7 +46,7 @@ export function renderChangelog(commits, repo, githubServerUrl) {
     if (!groups.has(section)) {
       groups.set(section, []);
     }
-    groups.get(section).push(entry);
+    groups.get(section)?.push(entry);
   }
 
   const orderedSections = [
@@ -79,8 +61,7 @@ export function renderChangelog(commits, repo, githubServerUrl) {
     "Other"
   ];
 
-  /** @type {string[]} */
-  const chunks = [];
+  const chunks: string[] = [];
   for (const section of orderedSections) {
     const entries = groups.get(section);
     if (!entries || entries.length === 0) {

@@ -1,38 +1,37 @@
+import { applyNoBumpPolicy } from "./bump-policy.js";
+import { renderChangelog } from "./changelog.js";
 import {
-  parseConventionalCommit,
-  resolveBumpFromCommits,
+  assertConventionalCommitValidity,
   normalizedCommitType,
-  assertConventionalCommitValidity
-} from "./commits.ts";
-import { calculateNextVersion } from "./semver.ts";
-import { readManifestVersion } from "./version-files.ts";
-import { renderChangelog } from "./changelog.ts";
-import { analyzeTargetImpacts } from "./targets.ts";
-import { collectCommitsInRange, enrichCommitsWithGitHubUsernames, resolveGitRange } from "./git.ts";
-import { applyNoBumpPolicy } from "./bump-policy.ts";
+  parseConventionalCommit,
+  resolveBumpFromCommits
+} from "./commits.js";
+import { collectCommitsInRange, enrichCommitsWithGitHubUsernames, resolveGitRange } from "./git.js";
+import { calculateNextVersion } from "./semver.js";
+import { analyzeTargetImpacts } from "./targets.js";
+import type {
+  AnalyzeRepositoryResult,
+  AnalyzedCommitOutput,
+  Logger,
+  ParsedConventionalCommit,
+  RawCommit,
+  RelluConfig,
+  TargetResult
+} from "./types.js";
+import { readManifestVersion } from "./version-files.js";
 
-/**
- * @typedef {import("./config.ts").RelluConfig} RelluConfig
- */
+interface CommitWithConventional extends RawCommit {
+  conventional: ParsedConventionalCommit;
+}
 
-/**
- * @param {{
- *   authorName: string;
- *   githubUsername: string;
- * }} commit
- */
-function displayAuthor(commit) {
+function displayAuthor(commit: Pick<RawCommit, "authorName" | "githubUsername">): string {
   if (commit.githubUsername) {
     return `@${commit.githubUsername}`;
   }
   return commit.authorName || "unknown";
 }
 
-/**
- * @param {RelluConfig} config
- * @param {{ info: (message: string) => void; warn: (message: string) => void }} logger
- */
-export async function analyzeRepository(config, logger) {
+export async function analyzeRepository(config: RelluConfig, logger: Logger): Promise<AnalyzeRepositoryResult> {
   const range = await resolveGitRange(config.fromRef, config.toRef, logger);
   const rawCommits = await collectCommitsInRange(range.expression, logger);
   const commits = await enrichCommitsWithGitHubUsernames(
@@ -43,15 +42,15 @@ export async function analyzeRepository(config, logger) {
     logger
   );
 
-  const commitsWithConventional = commits.map((commit) => ({
+  const commitsWithConventional: CommitWithConventional[] = commits.map((commit) => ({
     ...commit,
     conventional: parseConventionalCommit(commit.subject, commit.body)
   }));
 
   const impacts = analyzeTargetImpacts(config.targets, commitsWithConventional);
-  const targetByLabel = new Map(config.targets.map((target) => [target.label, target]));
+  const targetByLabel = new Map(config.targets.map((target) => [target.label, target] as const));
 
-  const results = [];
+  const results: TargetResult[] = [];
   for (const impact of impacts) {
     const target = targetByLabel.get(impact.label);
     if (!target) {
@@ -59,7 +58,7 @@ export async function analyzeRepository(config, logger) {
     }
     const currentVersion = await readManifestVersion(target.version.file, target.version.type);
 
-    const relevantParsed = impact.relevantCommits.map((commit) => {
+    const relevantParsed: CommitWithConventional[] = impact.relevantCommits.map((commit) => {
       const parsed = assertConventionalCommitValidity(
         commit.conventional,
         config.strictConventionalCommits,
@@ -84,15 +83,16 @@ export async function analyzeRepository(config, logger) {
       bumpFromCommits,
       noBumpPolicy: config.noBumpPolicy
     });
-    const bump = policyOutcome.bump;
+
     if (impact.changed && bumpFromCommits === "none") {
       logger.info(`Target ${target.label} has no bump-worthy commits. Applying no-bump policy "${config.noBumpPolicy}".`);
     }
 
-    const changed = impact.changed;
-    const nextVersion = policyOutcome.skipRelease ? currentVersion : calculateNextVersion(currentVersion, bump);
+    const nextVersion = policyOutcome.skipRelease
+      ? currentVersion
+      : calculateNextVersion(currentVersion, policyOutcome.bump);
 
-    const outputCommits = relevantParsed.map((commit) => ({
+    const outputCommits: AnalyzedCommitOutput[] = relevantParsed.map((commit) => ({
       sha: commit.sha,
       type: commit.conventional.type,
       scope: commit.conventional.scope,
@@ -119,24 +119,25 @@ export async function analyzeRepository(config, logger) {
       config.githubServerUrl
     );
 
-    results.push({
+    const result: TargetResult = {
       label: target.label,
-      changed,
+      changed: impact.changed,
       matchedFiles: impact.matchedFiles,
       commitCount: impact.commitCount,
       currentVersion,
       nextVersion,
-      bump,
+      bump: policyOutcome.bump,
       commits: outputCommits,
       changelog: {
         markdown: changelogMarkdown
       },
       versionSource: target.version,
       skipRelease: policyOutcome.skipRelease
-    });
+    };
 
+    results.push(result);
     logger.info(
-      `Target ${target.label}: changed=${String(changed)}, commits=${impact.commitCount}, bump=${bump}, nextVersion=${nextVersion}`
+      `Target ${target.label}: changed=${String(impact.changed)}, commits=${impact.commitCount}, bump=${policyOutcome.bump}, nextVersion=${nextVersion}`
     );
   }
 

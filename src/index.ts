@@ -1,10 +1,10 @@
-import { loadConfig } from "./config.ts";
-import { analyzeRepository } from "./analyze.ts";
-import { maybeManageReleasePrs } from "./release-pr.ts";
-import { writeActionOutputs } from "./output.ts";
-import { defaultLogger } from "./utils/log.ts";
+import { analyzeRepository } from "./analyze.js";
+import { loadConfig } from "./config.js";
+import { writeActionOutputs } from "./output.js";
+import { maybeManageReleasePrs } from "./release-pr.js";
+import { defaultLogger } from "./utils/log.js";
 
-async function run() {
+async function run(): Promise<void> {
   const config = loadConfig();
   defaultLogger.info(`Loaded ${config.targets.length} configured targets.`);
 
@@ -26,8 +26,8 @@ async function run() {
   defaultLogger.info(`Changed targets: ${changedTargets.length > 0 ? changedTargets.join(", ") : "(none)"}`);
 }
 
-run().catch((error) => {
-  const message = error instanceof Error ? error.stack ?? error.message : String(error);
+run().catch((error: unknown) => {
+  const message = error instanceof Error ? (error.stack ?? error.message) : String(error);
   console.error(message);
   process.exitCode = 1;
 });

@@ -1,10 +1,9 @@
-import test from "node:test";
-import assert from "node:assert/strict";
+import { expect, test } from "bun:test";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { analyzeTargetImpacts } from "../../dist/targets.js";
-import { parseConventionalCommit, assertConventionalCommitValidity } from "../../dist/commits.js";
-import { getReleaseBranchName } from "../../dist/release-pr.js";
+import { assertConventionalCommitValidity, parseConventionalCommit } from "../../src/commits.ts";
+import { getReleaseBranchName } from "../../src/release-pr.ts";
+import { analyzeTargetImpacts } from "../../src/targets.ts";
 
 const fixturesRoot = path.resolve("tests/fixtures");
 
@@ -26,25 +25,24 @@ test("fixture: shared-path commits are assigned to every matching target", async
   const app1 = impacts.find((impact) => impact.label === "app-1");
   const app2 = impacts.find((impact) => impact.label === "app-2");
 
-  assert.ok(app1?.changed);
-  assert.ok(app2?.changed);
-  assert.equal(app1?.commitCount, 2);
-  assert.equal(app2?.commitCount, 1);
+  expect(app1?.changed).toBe(true);
+  expect(app2?.changed).toBe(true);
+  expect(app1?.commitCount).toBe(2);
+  expect(app2?.commitCount).toBe(1);
 });
 
 test("fixture: strict mode fails for invalid conventional commits", async () => {
   const commits = await readJson("strict-invalid/commits.json");
   const invalid = parseConventionalCommit(commits[0].subject, commits[0].body);
-  assert.throws(
-    () => assertConventionalCommitValidity(invalid, true, "app-1", commits[0].sha, commits[0].subject),
-    /Invalid conventional commit/
-  );
+  expect(() =>
+    assertConventionalCommitValidity(invalid, true, "app-1", commits[0].sha, commits[0].subject)
+  ).toThrow(/Invalid conventional commit/);
 });
 
 test("fixture: release branch naming is deterministic and idempotent", async () => {
   const fixture = await readJson("release-idempotency/config.json");
   const first = getReleaseBranchName(fixture.releaseBranchPrefix, fixture.label);
   const second = getReleaseBranchName(fixture.releaseBranchPrefix, fixture.label);
-  assert.equal(first, fixture.expectedBranch);
-  assert.equal(second, fixture.expectedBranch);
+  expect(first).toBe(fixture.expectedBranch);
+  expect(second).toBe(fixture.expectedBranch);
 });

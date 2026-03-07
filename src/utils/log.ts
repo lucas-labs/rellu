@@ -1,20 +1,13 @@
-/**
- * @typedef {{
- *   info: (message: string) => void;
- *   warn: (message: string) => void;
- *   error: (message: string) => void;
- * }} Logger
- */
+import type { Logger } from "../types.js";
 
-/** @type {Logger} */
-export const defaultLogger = {
-  info(message) {
+export const defaultLogger: Logger = {
+  info(message: string) {
     console.log(message);
   },
-  warn(message) {
+  warn(message: string) {
     console.warn(message);
   },
-  error(message) {
+  error(message: string) {
     console.error(message);
   }
 };

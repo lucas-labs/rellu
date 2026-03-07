@@ -154,7 +154,18 @@ jobs:
 
 ## Local Development
 
+This repository uses Bun for package management and script execution.  
+The GitHub Action runtime remains Node (configured in [`action.yml`](./action.yml)).
+Tests run with Bun's native TypeScript test runner against `src/` modules.
+
 ```bash
-npm run build
-npm test
+bun install
+bun run build
+bun run typecheck
+bun run test
 ```
+
+## Pre-commit Hook
+
+Husky is configured with a `pre-commit` hook that runs `bun run build`.  
+This keeps committed `dist/` artifacts synchronized with source changes.

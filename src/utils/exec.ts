@@ -1,22 +1,21 @@
-import { spawn } from "node:child_process";
+import { spawn, type SpawnOptionsWithoutStdio } from "node:child_process";
+import type { CommandResult } from "../types.js";
 
-/**
- * @param {string} command
- * @param {string[]} args
- * @param {import("node:child_process").SpawnOptionsWithoutStdio=} options
- * @returns {Promise<{ stdout: string; stderr: string; code: number }>}
- */
-export async function runCommand(command, args, options = {}) {
+export function runCommand(
+  command: string,
+  args: string[],
+  options: SpawnOptionsWithoutStdio = {}
+): Promise<CommandResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { ...options, stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
 
-    child.stdout.on("data", (chunk) => {
+    child.stdout.on("data", (chunk: Buffer | string) => {
       stdout += String(chunk);
     });
 
-    child.stderr.on("data", (chunk) => {
+    child.stderr.on("data", (chunk: Buffer | string) => {
       stderr += String(chunk);
     });
 
@@ -37,6 +36,7 @@ export async function runCommand(command, args, options = {}) {
         reject(new Error(message));
         return;
       }
+
       resolve({ stdout, stderr, code: exitCode });
     });
   });

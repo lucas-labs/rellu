@@ -1,35 +1,17 @@
-import { isGlobMatch, toPosixPath, uniqueSortedPosix } from "./utils/paths.ts";
+import type { CommitLike, TargetConfig, TargetImpact } from "./types.js";
+import { isGlobMatch, toPosixPath, uniqueSortedPosix } from "./utils/paths.js";
 
-/**
- * @typedef {{
- *   label: string;
- *   paths: string[];
- *   version: { file: string; type: string };
- * }} TargetConfig
- *
- * @typedef {{
- *   sha: string;
- *   files: string[];
- * }} CommitLike
- */
-
-/**
- * @param {TargetConfig} target
- * @param {string[]} files
- * @returns {string[]}
- */
-function matchFilesForTarget(target, files) {
+function matchFilesForTarget(target: TargetConfig, files: string[]): string[] {
   return files.filter((file) => target.paths.some((glob) => isGlobMatch(file, glob)));
 }
 
-/**
- * @param {TargetConfig[]} targets
- * @param {CommitLike[]} commits
- */
-export function analyzeTargetImpacts(targets, commits) {
+export function analyzeTargetImpacts<TCommit extends CommitLike>(
+  targets: TargetConfig[],
+  commits: TCommit[]
+): TargetImpact<TCommit>[] {
   return targets.map((target) => {
-    const matchedFiles = new Set();
-    const relevantCommits = [];
+    const matchedFiles = new Set<string>();
+    const relevantCommits: TCommit[] = [];
 
     for (const commit of commits) {
       const normalizedFiles = commit.files.map(toPosixPath);

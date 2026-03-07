@@ -1,15 +1,12 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import type { ManifestType } from "./types.js";
 
-/**
- * @typedef {"node-package-json" | "rust-cargo-toml" | "python-pyproject-toml"} ManifestType
- */
+interface JsonRecord {
+  [key: string]: unknown;
+}
 
-/**
- * @param {string} filePath
- * @returns {Promise<string>}
- */
-async function readText(filePath) {
+async function readText(filePath: string): Promise<string> {
   try {
     return await fs.readFile(path.resolve(filePath), "utf8");
   } catch (error) {
@@ -17,67 +14,68 @@ async function readText(filePath) {
   }
 }
 
-/**
- * @param {string} filePath
- * @param {string} content
- */
-async function writeText(filePath, content) {
+async function writeText(filePath: string, content: string): Promise<void> {
   await fs.writeFile(path.resolve(filePath), content, "utf8");
 }
 
-/**
- * @param {string} text
- * @param {string} section
- * @returns {string}
- */
-function extractTomlSection(text, section) {
+function parseJsonRecord(text: string, filePath: string): JsonRecord {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (error) {
+    throw new Error(`Invalid JSON in "${filePath}": ${String(error)}`);
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`Expected JSON object in "${filePath}"`);
+  }
+  return parsed as JsonRecord;
+}
+
+function extractTomlSection(text: string, section: string): string {
   const escapedSection = section.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const sectionRegex = new RegExp(`\\[${escapedSection}\\]([\\s\\S]*?)(?=\\n\\[[^\\]]+\\]|$)`);
   const match = text.match(sectionRegex);
   return match?.[1] ?? "";
 }
 
-/**
- * @param {string} text
- * @returns {string}
- */
-function readCargoVersion(text) {
+function readCargoVersion(text: string): string {
   const section = extractTomlSection(text, "package");
   const match = section.match(/^\s*version\s*=\s*"([^"]+)"\s*$/mu);
   if (!match) {
     throw new Error('Cargo.toml missing [package] version = "x.y.z"');
   }
-  return match[1];
+  const version = match[1];
+  if (!version) {
+    throw new Error('Cargo.toml missing [package] version = "x.y.z"');
+  }
+  return version;
 }
 
-/**
- * @param {string} text
- * @returns {string}
- */
-function readPyprojectVersion(text) {
+function readPyprojectVersion(text: string): string {
   const project = extractTomlSection(text, "project");
   const poetry = extractTomlSection(text, "tool.poetry");
 
   const projectMatch = project.match(/^\s*version\s*=\s*"([^"]+)"\s*$/mu);
   if (projectMatch) {
-    return projectMatch[1];
+    const version = projectMatch[1];
+    if (version) {
+      return version;
+    }
   }
   const poetryMatch = poetry.match(/^\s*version\s*=\s*"([^"]+)"\s*$/mu);
   if (poetryMatch) {
-    return poetryMatch[1];
+    const version = poetryMatch[1];
+    if (version) {
+      return version;
+    }
   }
+
   throw new Error(
     "pyproject.toml missing supported version layout. Expected [project] version or [tool.poetry] version."
   );
 }
 
-/**
- * @param {string} text
- * @param {string} section
- * @param {string} nextVersion
- * @returns {string}
- */
-function updateTomlSectionVersion(text, section, nextVersion) {
+function updateTomlSectionVersion(text: string, section: string, nextVersion: string): string {
   const escapedSection = section.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const sectionPattern = new RegExp(`(\\[${escapedSection}\\][\\s\\S]*?^\\s*version\\s*=\\s*")([^"]+)(")`, "m");
   if (!sectionPattern.test(text)) {
@@ -86,17 +84,12 @@ function updateTomlSectionVersion(text, section, nextVersion) {
   return text.replace(sectionPattern, `$1${nextVersion}$3`);
 }
 
-/**
- * @param {string} filePath
- * @param {ManifestType} type
- * @returns {Promise<string>}
- */
-export async function readManifestVersion(filePath, type) {
+export async function readManifestVersion(filePath: string, type: ManifestType): Promise<string> {
   const text = await readText(filePath);
 
   if (type === "node-package-json") {
-    const parsed = JSON.parse(text);
-    const version = String(parsed?.version ?? "").trim();
+    const parsed = parseJsonRecord(text, filePath);
+    const version = String(parsed.version ?? "").trim();
     if (!version) {
       throw new Error(`Target manifest "${filePath}" missing package.json version field`);
     }
@@ -111,21 +104,20 @@ export async function readManifestVersion(filePath, type) {
     return readPyprojectVersion(text);
   }
 
-  throw new Error(`Unsupported manifest type "${type}"`);
+  const exhaustiveCheck: never = type;
+  throw new Error(`Unsupported manifest type "${String(exhaustiveCheck)}"`);
 }
 
-/**
- * @param {string} filePath
- * @param {ManifestType} type
- * @param {string} nextVersion
- * @returns {Promise<void>}
- */
-export async function writeManifestVersion(filePath, type, nextVersion) {
+export async function writeManifestVersion(
+  filePath: string,
+  type: ManifestType,
+  nextVersion: string
+): Promise<void> {
   const text = await readText(filePath);
   let updated = text;
 
   if (type === "node-package-json") {
-    const parsed = JSON.parse(text);
+    const parsed = parseJsonRecord(text, filePath);
     parsed.version = nextVersion;
     updated = `${JSON.stringify(parsed, null, 2)}\n`;
     await writeText(filePath, updated);
@@ -149,13 +141,12 @@ export async function writeManifestVersion(filePath, type, nextVersion) {
     }
     const fromPoetry = updateTomlSectionVersion(text, "tool.poetry", nextVersion);
     if (fromPoetry === text) {
-      throw new Error(
-        `Target manifest "${filePath}" missing [project] version or [tool.poetry] version field`
-      );
+      throw new Error(`Target manifest "${filePath}" missing [project] version or [tool.poetry] version field`);
     }
     await writeText(filePath, fromPoetry);
     return;
   }
 
-  throw new Error(`Unsupported manifest type "${type}"`);
+  const exhaustiveCheck: never = type;
+  throw new Error(`Unsupported manifest type "${String(exhaustiveCheck)}"`);
 }

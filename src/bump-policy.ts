@@ -1,12 +1,12 @@
-/**
- * @typedef {"major" | "minor" | "patch" | "none"} BumpLevel
- * @typedef {"skip" | "keep" | "patch"} NoBumpPolicy
- */
+import type { BumpLevel, NoBumpPolicy, NoBumpPolicyOutcome } from "./types.js";
 
-/**
- * @param {{ changed: boolean; bumpFromCommits: BumpLevel; noBumpPolicy: NoBumpPolicy }} input
- */
-export function applyNoBumpPolicy(input) {
+interface ApplyNoBumpPolicyInput {
+  changed: boolean;
+  bumpFromCommits: BumpLevel;
+  noBumpPolicy: NoBumpPolicy;
+}
+
+export function applyNoBumpPolicy(input: ApplyNoBumpPolicyInput): NoBumpPolicyOutcome {
   if (!input.changed) {
     return {
       bump: "none",

@@ -4,13 +4,22 @@
   "private": true,
   "description": "Rellu - monorepo release analysis GitHub Action",
   "type": "module",
+  "packageManager": "bun@1.2.2",
   "main": "dist/index.js",
   "scripts": {
-    "build": "node scripts/build.mjs",
-    "test": "npm run build && node --test --test-isolation=none \"tests/**/*.test.mjs\"",
-    "test:ci": "npm run test"
+    "build": "tsdown \"src/index.ts\" --config \"tsdown.config.ts\" --out-dir \"dist\"",
+    "typecheck": "tsc --project tsconfig.json --noEmit",
+    "test": "bun test",
+    "test:ci": "bun run build && bun run typecheck && bun test",
+    "prepare": "husky"
   },
   "engines": {
     "node": ">=20"
+  },
+  "devDependencies": {
+    "@types/node": "^25.3.5",
+    "husky": "^9.1.7",
+    "tsdown": "^0.21.0",
+    "typescript": "^5.9.3"
   }
 }

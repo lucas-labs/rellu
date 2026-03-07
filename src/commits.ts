@@ -1,55 +1,28 @@
-/**
- * @typedef {"major" | "minor" | "patch" | "none"} BumpLevel
- *
- * @typedef {{
- *   type: string | null;
- *   scope: string | null;
- *   description: string;
- *   emoji: string;
- *   isBreaking: boolean;
- *   rawSubject: string;
- *   body: string;
- *   footers: Record<string, string>;
- *   valid: boolean;
- * }} ParsedConventionalCommit
- */
+import type { BumpLevel, ParsedConventionalCommit } from "./types.js";
 
-/** @type {RegExp} */
 const HEADER_REGEX = /^([a-zA-Z][\w-]*)(?:\(([^)]+)\))?(!)?:\s+(.+)$/u;
 
-/**
- * @param {string} text
- * @returns {string}
- */
-function detectEmoji(text) {
+function detectEmoji(text: string): string {
   const match = text.match(/\p{Extended_Pictographic}/u);
   return match ? match[0] : "";
 }
 
-/**
- * @param {string} body
- * @returns {Record<string, string>}
- */
-function parseFooters(body) {
-  /** @type {Record<string, string>} */
-  const footers = {};
+function parseFooters(body: string): Record<string, string> {
+  const footers: Record<string, string> = {};
   for (const line of body.split(/\r?\n/u)) {
     const match = line.match(/^([A-Za-z-]+):\s+(.+)$/u);
     if (!match) {
       continue;
     }
     const [, key, value] = match;
-    footers[key] = value.trim();
+    if (key && value) {
+      footers[key] = value.trim();
+    }
   }
   return footers;
 }
 
-/**
- * @param {string} subject
- * @param {string} body
- * @returns {ParsedConventionalCommit}
- */
-export function parseConventionalCommit(subject, body) {
+export function parseConventionalCommit(subject: string, body: string): ParsedConventionalCommit {
   const trimmedSubject = subject.trim();
   const header = trimmedSubject.match(HEADER_REGEX);
   const footerMap = parseFooters(body);
@@ -69,7 +42,7 @@ export function parseConventionalCommit(subject, body) {
     };
   }
 
-  const [, type, scope = "", bang = "", description = ""] = header;
+  const [, type = "", scope = "", bang = "", description = ""] = header;
   return {
     type: type.toLowerCase(),
     scope: scope || null,
@@ -83,52 +56,41 @@ export function parseConventionalCommit(subject, body) {
   };
 }
 
-/**
- * @param {ParsedConventionalCommit} parsed
- * @returns {string}
- */
-export function normalizedCommitType(parsed) {
+export function normalizedCommitType(parsed: ParsedConventionalCommit): string {
   if (!parsed.valid || !parsed.type) {
     return "other";
   }
   return parsed.type;
 }
 
-/**
- * @param {ParsedConventionalCommit} parsed
- * @param {boolean} strict
- * @param {string} targetLabel
- * @param {string} sha
- * @param {string} subject
- */
-export function assertConventionalCommitValidity(parsed, strict, targetLabel, sha, subject) {
+export function assertConventionalCommitValidity(
+  parsed: ParsedConventionalCommit,
+  strict: boolean,
+  targetLabel: string,
+  sha: string,
+  subject: string
+): ParsedConventionalCommit {
   if (!parsed.valid && strict) {
-    throw new Error(
-      `Invalid conventional commit for target "${targetLabel}" in strict mode: ${sha} "${subject}"`
-    );
+    throw new Error(`Invalid conventional commit for target "${targetLabel}" in strict mode: ${sha} "${subject}"`);
   }
   return parsed;
 }
 
-/**
- * @param {ParsedConventionalCommit[]} commits
- * @param {Record<string, BumpLevel>} bumpRules
- * @returns {BumpLevel}
- */
-export function resolveBumpFromCommits(commits, bumpRules) {
-  /** @type {BumpLevel} */
-  let highest = "none";
+export function resolveBumpFromCommits(
+  commits: ParsedConventionalCommit[],
+  bumpRules: Record<string, BumpLevel>
+): BumpLevel {
+  let highest: BumpLevel = "none";
 
   for (const commit of commits) {
-    /** @type {BumpLevel} */
-    const bump = commit.isBreaking
+    const bump: BumpLevel = commit.isBreaking
       ? "major"
-      : bumpRules[normalizedCommitType(commit)] ?? bumpRules.other ?? "none";
+      : (bumpRules[normalizedCommitType(commit)] ?? bumpRules.other ?? "none");
 
     if (bump === "major") {
       return "major";
     }
-    if (bump === "minor" && highest !== "major") {
+    if (bump === "minor") {
       highest = "minor";
     } else if (bump === "patch" && highest === "none") {
       highest = "patch";

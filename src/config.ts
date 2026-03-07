@@ -1,50 +1,33 @@
 import fs from "node:fs";
 import path from "node:path";
-import { globToRegExp, toPosixPath } from "./utils/paths.ts";
+import type { BumpLevel, NoBumpPolicy, RelluConfig, TargetConfig, VersionSource } from "./types.js";
+import { globToRegExp, toPosixPath } from "./utils/paths.js";
 
-/**
- * @typedef {"node-package-json" | "rust-cargo-toml" | "python-pyproject-toml"} ManifestType
- * @typedef {"major" | "minor" | "patch" | "none"} BumpLevel
- * @typedef {"skip" | "keep" | "patch"} NoBumpPolicy
- *
- * @typedef {{
- *   file: string;
- *   type: ManifestType;
- * }} VersionSource
- *
- * @typedef {{
- *   label: string;
- *   paths: string[];
- *   version: VersionSource;
- * }} TargetConfig
- *
- * @typedef {{
- *   fromRef: string;
- *   toRef: string;
- *   strictConventionalCommits: boolean;
- *   bumpRules: Record<string, BumpLevel>;
- *   noBumpPolicy: NoBumpPolicy;
- *   createReleasePrs: boolean;
- *   releaseBranchPrefix: string;
- *   baseBranch: string;
- *   repo: string;
- *   githubServerUrl: string;
- *   githubToken: string;
- *   targets: TargetConfig[];
- * }} RelluConfig
- */
+type ConfigFile = Partial<{
+  targets: unknown;
+  apps: unknown;
+  bumpRules: unknown;
+  fromRef: unknown;
+  toRef: unknown;
+  noBumpPolicy: unknown;
+  strictConventionalCommits: unknown;
+  createReleasePrs: unknown;
+  releaseBranchPrefix: unknown;
+  baseBranch: unknown;
+  repo: unknown;
+  githubServerUrl: unknown;
+}>;
 
-const SUPPORTED_MANIFEST_TYPES = new Set([
+const SUPPORTED_MANIFEST_TYPES: ReadonlySet<VersionSource["type"]> = new Set([
   "node-package-json",
   "rust-cargo-toml",
   "python-pyproject-toml"
 ]);
 
-const SUPPORTED_BUMP_LEVELS = new Set(["major", "minor", "patch", "none"]);
-const SUPPORTED_NO_BUMP_POLICIES = new Set(["skip", "keep", "patch"]);
+const SUPPORTED_BUMP_LEVELS: ReadonlySet<BumpLevel> = new Set(["major", "minor", "patch", "none"]);
+const SUPPORTED_NO_BUMP_POLICIES: ReadonlySet<NoBumpPolicy> = new Set(["skip", "keep", "patch"]);
 
-/** @type {Record<string, BumpLevel>} */
-const DEFAULT_BUMP_RULES = {
+const DEFAULT_BUMP_RULES: Record<string, BumpLevel> = {
   feat: "minor",
   fix: "patch",
   perf: "patch",
@@ -58,20 +41,12 @@ const DEFAULT_BUMP_RULES = {
   other: "none"
 };
 
-/**
- * @param {string} name
- * @returns {string}
- */
-function readInput(name) {
-  return String(process.env[`INPUT_${name.replace(/ /g, "_").toUpperCase()}`] ?? "").trim();
+function readInput(name: string): string {
+  const normalized = name.replace(/[ -]/g, "_").toUpperCase();
+  return String(process.env[`INPUT_${normalized}`] ?? "").trim();
 }
 
-/**
- * @param {string} value
- * @param {boolean} fallback
- * @returns {boolean}
- */
-function toBoolean(value, fallback) {
+function toBoolean(value: string, fallback: boolean): boolean {
   if (!value) {
     return fallback;
   }
@@ -84,11 +59,7 @@ function toBoolean(value, fallback) {
   throw new Error(`Invalid boolean value "${value}"`);
 }
 
-/**
- * @param {string} input
- * @returns {any}
- */
-function parseJson(input) {
+function parseJson(input: string): unknown {
   try {
     return JSON.parse(input);
   } catch (error) {
@@ -96,110 +67,103 @@ function parseJson(input) {
   }
 }
 
-/**
- * @param {string} filePath
- * @returns {any}
- */
-function loadConfigFile(filePath) {
+function asRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Expected an object");
+  }
+  return value as Record<string, unknown>;
+}
+
+function asOptionalString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function loadConfigFile(filePath: string): ConfigFile {
   const absolute = path.resolve(filePath);
   if (!fs.existsSync(absolute)) {
     throw new Error(`Config file not found: ${absolute}`);
   }
-  const ext = path.extname(absolute).toLowerCase();
-  if (ext !== ".json") {
-    throw new Error(`Unsupported config file extension "${ext}". Use JSON config files.`);
+  const extension = path.extname(absolute).toLowerCase();
+  if (extension !== ".json") {
+    throw new Error(`Unsupported config file extension "${extension}". Use JSON config files.`);
   }
+
   const raw = fs.readFileSync(absolute, "utf8");
-  return parseJson(raw);
+  const parsed = parseJson(raw);
+  return asRecord(parsed);
 }
 
-/**
- * @param {string} rawTargets
- * @param {any} fileConfig
- * @returns {TargetConfig[]}
- */
-function resolveTargets(rawTargets, fileConfig) {
-  const fromFile = fileConfig?.targets ?? fileConfig?.apps;
-  const source = rawTargets ? parseJson(rawTargets) : fromFile;
+function parseTarget(targetValue: unknown, index: number): TargetConfig {
+  const target = asRecord(targetValue);
+  const label = asOptionalString(target.label);
+  if (!label) {
+    throw new Error(`Target at index ${index} is missing required field: label`);
+  }
 
+  const pathsValue = target.paths;
+  if (!Array.isArray(pathsValue) || pathsValue.length === 0) {
+    throw new Error(`Target "${label}" must define at least one path glob`);
+  }
+  const paths = pathsValue.map((value) => String(value).trim());
+  for (const glob of paths) {
+    if (!glob) {
+      throw new Error(`Target "${label}" has an empty path glob`);
+    }
+    try {
+      globToRegExp(glob);
+    } catch (error) {
+      throw new Error(`Target "${label}" has invalid glob "${glob}": ${String(error)}`);
+    }
+  }
+
+  const version = asRecord(target.version);
+  const file = asOptionalString(version.file);
+  const type = asOptionalString(version.type);
+  if (!file) {
+    throw new Error(`Target "${label}" is missing version.file`);
+  }
+  if (!SUPPORTED_MANIFEST_TYPES.has(type as VersionSource["type"])) {
+    throw new Error(
+      `Target "${label}" has unsupported version.type "${type}". ` +
+        "Supported: node-package-json, rust-cargo-toml, python-pyproject-toml."
+    );
+  }
+
+  return {
+    label,
+    paths: paths.map((entry) => toPosixPath(entry)),
+    version: {
+      file: toPosixPath(file),
+      type: type as VersionSource["type"]
+    }
+  };
+}
+
+function resolveTargets(rawTargets: string, fileConfig: ConfigFile): TargetConfig[] {
+  const fromFile = fileConfig.targets ?? fileConfig.apps;
+  const source = rawTargets ? parseJson(rawTargets) : fromFile;
   if (!Array.isArray(source) || source.length === 0) {
     throw new Error("No targets provided. Set input 'targets' or provide targets/apps in config-file.");
   }
 
-  return source.map((target, index) => {
-    if (!target || typeof target !== "object") {
-      throw new Error(`Target at index ${index} must be an object`);
-    }
-    const label = String(target.label ?? "").trim();
-    if (!label) {
-      throw new Error(`Target at index ${index} is missing required field: label`);
-    }
-
-    const paths = Array.isArray(target.paths) ? target.paths.map((value) => String(value).trim()) : [];
-    if (paths.length === 0) {
-      throw new Error(`Target "${label}" must define at least one path glob`);
-    }
-
-    for (const glob of paths) {
-      if (!glob) {
-        throw new Error(`Target "${label}" has an empty path glob`);
-      }
-      try {
-        globToRegExp(glob);
-      } catch (error) {
-        throw new Error(`Target "${label}" has invalid glob "${glob}": ${String(error)}`);
-      }
-    }
-
-    const version = target.version;
-    if (!version || typeof version !== "object") {
-      throw new Error(`Target "${label}" must define version.file and version.type`);
-    }
-
-    const file = String(version.file ?? "").trim();
-    const type = String(version.type ?? "").trim();
-    if (!file) {
-      throw new Error(`Target "${label}" is missing version.file`);
-    }
-    if (!SUPPORTED_MANIFEST_TYPES.has(type)) {
-      throw new Error(
-        `Target "${label}" has unsupported version.type "${type}". ` +
-          "Supported: node-package-json, rust-cargo-toml, python-pyproject-toml."
-      );
-    }
-
-    return {
-      label,
-      paths: paths.map((entry) => toPosixPath(entry)),
-      version: {
-        file: toPosixPath(file),
-        type
-      }
-    };
-  });
+  return source.map((target, index) => parseTarget(target, index));
 }
 
-/**
- * @param {Record<string, unknown>} value
- * @returns {Record<string, BumpLevel>}
- */
-function parseBumpRules(value) {
+function parseBumpRules(value: unknown): Record<string, BumpLevel> {
+  const record = asRecord(value);
   const merged = { ...DEFAULT_BUMP_RULES };
-  for (const [key, rawLevel] of Object.entries(value)) {
-    const level = String(rawLevel ?? "").trim();
-    if (!SUPPORTED_BUMP_LEVELS.has(level)) {
-      throw new Error(`Unsupported bump level "${level}" for commit type "${key}"`);
+  for (const [commitType, rawLevel] of Object.entries(record)) {
+    const level = asOptionalString(rawLevel);
+    if (!SUPPORTED_BUMP_LEVELS.has(level as BumpLevel)) {
+      throw new Error(`Unsupported bump level "${level}" for commit type "${commitType}"`);
     }
-    merged[key] = /** @type {BumpLevel} */ (level);
+    merged[commitType] = level as BumpLevel;
   }
   return merged;
 }
 
-/**
- * @param {TargetConfig[]} targets
- */
-function validateUniqueTargetLabels(targets) {
-  const seen = new Set();
+function validateUniqueTargetLabels(targets: TargetConfig[]): void {
+  const seen = new Set<string>();
   for (const target of targets) {
     if (seen.has(target.label)) {
       throw new Error(`Duplicate target label "${target.label}"`);
@@ -208,10 +172,7 @@ function validateUniqueTargetLabels(targets) {
   }
 }
 
-/**
- * @returns {RelluConfig}
- */
-export function loadConfig() {
+export function loadConfig(): RelluConfig {
   const configFileInput = readInput("config-file");
   const fileConfig = configFileInput ? loadConfigFile(configFileInput) : {};
 
@@ -219,42 +180,34 @@ export function loadConfig() {
   validateUniqueTargetLabels(targets);
 
   const rawBumpRules = readInput("bump-rules");
-  const bumpRulesFromFile = fileConfig?.bumpRules ?? {};
-  const bumpRulesInput = rawBumpRules ? parseJson(rawBumpRules) : bumpRulesFromFile;
-  if (bumpRulesInput && typeof bumpRulesInput !== "object") {
-    throw new Error("bump-rules must be a JSON object");
-  }
-  const bumpRules = parseBumpRules(/** @type {Record<string, unknown>} */ (bumpRulesInput ?? {}));
+  const bumpRulesInput = rawBumpRules ? parseJson(rawBumpRules) : (fileConfig.bumpRules ?? {});
+  const bumpRules = parseBumpRules(bumpRulesInput);
 
-  const fromRef = readInput("from-ref") || String(fileConfig?.fromRef ?? "").trim();
-  const toRef = readInput("to-ref") || String(fileConfig?.toRef ?? "HEAD").trim() || "HEAD";
+  const fromRef = readInput("from-ref") || asOptionalString(fileConfig.fromRef);
+  const toRef = readInput("to-ref") || asOptionalString(fileConfig.toRef) || "HEAD";
 
   const noBumpPolicyRaw =
-    readInput("no-bump-policy") || String(fileConfig?.noBumpPolicy ?? "skip").trim() || "skip";
+    (readInput("no-bump-policy") || asOptionalString(fileConfig.noBumpPolicy) || "skip") as NoBumpPolicy;
   if (!SUPPORTED_NO_BUMP_POLICIES.has(noBumpPolicyRaw)) {
     throw new Error(`Invalid no-bump-policy "${noBumpPolicyRaw}". Expected skip, keep, or patch.`);
   }
 
-  const strictRaw = readInput("strict-conventional-commits") || String(fileConfig?.strictConventionalCommits ?? "");
-  const createReleasePrsRaw = readInput("create-release-prs") || String(fileConfig?.createReleasePrs ?? "");
-  const strictConventionalCommits = toBoolean(strictRaw, false);
-  const createReleasePrs = toBoolean(createReleasePrsRaw, false);
+  const strictRaw = readInput("strict-conventional-commits") || asOptionalString(fileConfig.strictConventionalCommits);
+  const createReleasePrsRaw = readInput("create-release-prs") || asOptionalString(fileConfig.createReleasePrs);
 
-  const releaseBranchPrefix =
-    readInput("release-branch-prefix") || String(fileConfig?.releaseBranchPrefix ?? "rellu/release").trim();
-  const baseBranch = readInput("base-branch") || String(fileConfig?.baseBranch ?? "main").trim();
-  const repo = readInput("repo") || String(fileConfig?.repo ?? process.env.GITHUB_REPOSITORY ?? "").trim();
-  const githubServerUrl =
-    readInput("github-server-url") || String(fileConfig?.githubServerUrl ?? "https://api.github.com").trim();
-  const githubToken = String(process.env.GITHUB_TOKEN ?? process.env.INPUT_GITHUB_TOKEN ?? "").trim();
+  const releaseBranchPrefix = readInput("release-branch-prefix") || asOptionalString(fileConfig.releaseBranchPrefix) || "rellu/release";
+  const baseBranch = readInput("base-branch") || asOptionalString(fileConfig.baseBranch) || "main";
+  const repo = readInput("repo") || asOptionalString(fileConfig.repo) || asOptionalString(process.env.GITHUB_REPOSITORY);
+  const githubServerUrl = readInput("github-server-url") || asOptionalString(fileConfig.githubServerUrl) || "https://api.github.com";
+  const githubToken = asOptionalString(process.env.GITHUB_TOKEN) || asOptionalString(process.env.INPUT_GITHUB_TOKEN);
 
   return {
     fromRef,
     toRef,
-    strictConventionalCommits,
+    strictConventionalCommits: toBoolean(strictRaw, false),
     bumpRules,
-    noBumpPolicy: /** @type {NoBumpPolicy} */ (noBumpPolicyRaw),
-    createReleasePrs,
+    noBumpPolicy: noBumpPolicyRaw,
+    createReleasePrs: toBoolean(createReleasePrsRaw, false),
     releaseBranchPrefix,
     baseBranch,
     repo,

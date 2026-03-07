@@ -1,0 +1,150 @@
+export type ManifestType = "node-package-json" | "rust-cargo-toml" | "python-pyproject-toml";
+
+export type BumpLevel = "major" | "minor" | "patch" | "none";
+
+export type NoBumpPolicy = "skip" | "keep" | "patch";
+
+export interface VersionSource {
+  file: string;
+  type: ManifestType;
+}
+
+export interface TargetConfig {
+  label: string;
+  paths: string[];
+  version: VersionSource;
+}
+
+export interface RelluConfig {
+  fromRef: string;
+  toRef: string;
+  strictConventionalCommits: boolean;
+  bumpRules: Record<string, BumpLevel>;
+  noBumpPolicy: NoBumpPolicy;
+  createReleasePrs: boolean;
+  releaseBranchPrefix: string;
+  baseBranch: string;
+  repo: string;
+  githubServerUrl: string;
+  githubToken: string;
+  targets: TargetConfig[];
+}
+
+export interface Logger {
+  info(message: string): void;
+  warn(message: string): void;
+  error(message: string): void;
+}
+
+export interface CommandResult {
+  stdout: string;
+  stderr: string;
+  code: number;
+}
+
+export interface ResolvedGitRange {
+  from: string;
+  to: string;
+  expression: string;
+}
+
+export interface RawCommit {
+  sha: string;
+  parents: string[];
+  subject: string;
+  body: string;
+  authorName: string;
+  authorEmail: string;
+  files: string[];
+  isMerge: boolean;
+  githubUsername: string;
+}
+
+export interface ParsedConventionalCommit {
+  type: string | null;
+  scope: string | null;
+  description: string;
+  emoji: string;
+  isBreaking: boolean;
+  rawSubject: string;
+  body: string;
+  footers: Record<string, string>;
+  valid: boolean;
+}
+
+export interface CommitAuthorOutput {
+  name: string;
+  username: string;
+  display: string;
+}
+
+export interface AnalyzedCommitOutput {
+  sha: string;
+  type: string | null;
+  scope: string | null;
+  description: string;
+  isBreaking: boolean;
+  rawSubject: string;
+  body: string;
+  author: CommitAuthorOutput;
+}
+
+export interface ChangelogData {
+  markdown: string;
+}
+
+export interface ReleasePrInfo {
+  enabled: boolean;
+  branch: string;
+  title: string;
+  number?: number;
+  url?: string;
+}
+
+export interface TargetResult {
+  label: string;
+  changed: boolean;
+  matchedFiles: string[];
+  commitCount: number;
+  currentVersion: string;
+  nextVersion: string;
+  bump: BumpLevel;
+  commits: AnalyzedCommitOutput[];
+  changelog: ChangelogData;
+  versionSource: VersionSource;
+  skipRelease: boolean;
+  releasePr?: ReleasePrInfo;
+}
+
+export interface AnalyzeRepositoryResult {
+  range: string;
+  commitCount: number;
+  results: TargetResult[];
+}
+
+export interface NoBumpPolicyOutcome {
+  bump: BumpLevel;
+  skipRelease: boolean;
+}
+
+export type CommitLike = {
+  sha: string;
+  files: string[];
+};
+
+export interface TargetImpact<TCommit extends CommitLike> {
+  label: string;
+  changed: boolean;
+  matchedFiles: string[];
+  commitCount: number;
+  relevantCommits: TCommit[];
+}
+
+export interface ReleaseConfig {
+  createReleasePrs: boolean;
+  releaseBranchPrefix: string;
+  baseBranch: string;
+  repo: string;
+  githubServerUrl: string;
+  githubToken: string;
+}

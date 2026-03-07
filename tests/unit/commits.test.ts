@@ -1,39 +1,37 @@
-import test from "node:test";
-import assert from "node:assert/strict";
+import { expect, test } from "bun:test";
 import {
-  parseConventionalCommit,
-  resolveBumpFromCommits,
+  assertConventionalCommitValidity,
   normalizedCommitType,
-  assertConventionalCommitValidity
-} from "../../dist/commits.js";
+  parseConventionalCommit,
+  resolveBumpFromCommits
+} from "../../src/commits.ts";
 
 test("parseConventionalCommit parses scope, bang, footers and breaking flag", () => {
   const parsed = parseConventionalCommit(
     "feat(api)!: redesign transport",
     "body text\nBREAKING CHANGE: old protocol removed\nRef: #123"
   );
-  assert.equal(parsed.valid, true);
-  assert.equal(parsed.type, "feat");
-  assert.equal(parsed.scope, "api");
-  assert.equal(parsed.isBreaking, true);
-  assert.equal(parsed.footers.Ref, "#123");
+  expect(parsed.valid).toBe(true);
+  expect(parsed.type).toBe("feat");
+  expect(parsed.scope).toBe("api");
+  expect(parsed.isBreaking).toBe(true);
+  expect(parsed.footers.Ref).toBe("#123");
 });
 
 test("invalid conventional commits become other in non-strict mode", () => {
   const parsed = parseConventionalCommit("updated files", "");
-  assert.equal(parsed.valid, false);
-  assert.equal(normalizedCommitType(parsed), "other");
-  assert.doesNotThrow(() =>
+  expect(parsed.valid).toBe(false);
+  expect(normalizedCommitType(parsed)).toBe("other");
+  expect(() =>
     assertConventionalCommitValidity(parsed, false, "app-1", "abc123", "updated files")
-  );
+  ).not.toThrow();
 });
 
 test("strict mode throws on invalid conventional commits", () => {
   const parsed = parseConventionalCommit("updated files", "");
-  assert.throws(
-    () => assertConventionalCommitValidity(parsed, true, "app-1", "abc123", "updated files"),
-    /Invalid conventional commit/
-  );
+  expect(() =>
+    assertConventionalCommitValidity(parsed, true, "app-1", "abc123", "updated files")
+  ).toThrow(/Invalid conventional commit/);
 });
 
 test("resolveBumpFromCommits uses highest-priority bump", () => {
@@ -48,5 +46,5 @@ test("resolveBumpFromCommits uses highest-priority bump", () => {
     chore: "none",
     other: "none"
   });
-  assert.equal(bump, "minor");
+  expect(bump).toBe("minor");
 });
