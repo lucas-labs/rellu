@@ -3,9 +3,22 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
+function setWorkspaceRoot(workspaceRoot: string): () => void {
+  const previous = process.env.GITHUB_WORKSPACE;
+  process.env.GITHUB_WORKSPACE = workspaceRoot;
+  return () => {
+    if (previous === undefined) {
+      delete process.env.GITHUB_WORKSPACE;
+      return;
+    }
+    process.env.GITHUB_WORKSPACE = previous;
+  };
+}
+
 test("release PR management uses toolkit GitHub client and syncs metadata", async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "rellu-release-pr-test-"));
   const manifestPath = path.join(tempDir, "package.json");
+  const restoreWorkspace = setWorkspaceRoot(tempDir);
   await fs.writeFile(manifestPath, JSON.stringify({ name: "app-1", version: "1.2.3" }, null, 2), "utf8");
   try {
     const runCommandMock = mock(async (_command: string, args: string[]) => {
@@ -115,6 +128,7 @@ test("release PR management uses toolkit GitHub client and syncs metadata", asyn
     expect(outcome.updatedResults[0]?.releasePr?.title).toBe("release(app-1): v1.2.4");
   } finally {
     mock.restore();
+    restoreWorkspace();
     await fs.rm(tempDir, { recursive: true, force: true });
   }
 });
@@ -187,6 +201,121 @@ test("release PR management marks non-releasable targets with disabled releasePr
     expect(runCommandMock).toHaveBeenCalledTimes(0);
   } finally {
     mock.restore();
+  }
+});
+
+test("release PR management uses sanitized changelog markdown for PR body updates", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "rellu-release-pr-sanitized-body-"));
+  const manifestPath = path.join(tempDir, "package.json");
+  const restoreWorkspace = setWorkspaceRoot(tempDir);
+  await fs.writeFile(manifestPath, JSON.stringify({ name: "app-1", version: "1.2.3" }, null, 2), "utf8");
+
+  try {
+    const runCommandMock = mock(async (_command: string, args: string[]) => {
+      if (args[0] === "status") {
+        return { stdout: ` M ${manifestPath}\n`, stderr: "", code: 0 };
+      }
+      return { stdout: "", stderr: "", code: 0 };
+    });
+    const listPullsMock = mock(async () => [
+      {
+        number: 42,
+        htmlUrl: "https://example.local/pull/42",
+        title: "release(app-1): v1.2.4",
+        headRef: "rellu/release/app-1"
+      }
+    ]);
+    const updatePullMock = mock(async (_repo, pullNumber: number, options: { title?: string; body?: string }) => ({
+      number: pullNumber,
+      htmlUrl: "https://example.local/pull/42",
+      title: String(options.title ?? ""),
+      headRef: "rellu/release/app-1"
+    }));
+    const createGitHubClientMock = mock(() => ({
+      listPulls: listPullsMock,
+      updatePull: updatePullMock,
+      createPull: mock(async () => {
+        throw new Error("createPull should not be called when existing PR is found");
+      }),
+      getCommitAuthorLogin: mock(async () => ""),
+      getUserLoginByEmail: mock(async () => "")
+    }));
+    const parseRepoRefMock = mock(() => ({ owner: "acme", name: "rellu" }));
+
+    mock.module("../../src/utils/exec.ts", () => ({
+      runCommand: runCommandMock
+    }));
+    mock.module("../../src/toolkit/io-client.ts", () => ({
+      ensureParentDirectory: mock(async () => {})
+    }));
+    mock.module("../../src/toolkit/github-client.ts", () => ({
+      createGitHubClient: createGitHubClientMock,
+      parseRepoRef: parseRepoRefMock
+    }));
+
+    const queryKey = "release-pr-sanitized-body";
+    const { maybeManageReleasePrs } = await import(`../../src/release-pr.ts?${queryKey}`);
+    const sanitizedMarkdown =
+      "## Bug Fixes\n- api: escape \\[link\\]\\(url\\) and ping \\@team (thanks \\@alice\\(bot\\)) ([abc1234](...))";
+
+    await maybeManageReleasePrs(
+      {
+        createReleasePrs: true,
+        releaseBranchPrefix: "rellu/release",
+        baseBranch: "main",
+        repo: "acme/rellu",
+        githubServerUrl: "https://api.github.com",
+        githubToken: "token-123"
+      },
+      [
+        {
+          label: "app-1",
+          changed: true,
+          matchedFiles: [manifestPath],
+          commitCount: 1,
+          currentVersion: "1.2.3",
+          nextVersion: "1.2.4",
+          bump: "patch",
+          commits: [
+            {
+              sha: "abc1234",
+              type: "fix",
+              scope: "api",
+              description: "escape [link](url) and ping @team",
+              isBreaking: false,
+              rawSubject: "fix(api): escape [link](url) and ping @team",
+              body: "",
+              author: {
+                name: "Alice",
+                username: "alice",
+                display: "@alice(bot)"
+              }
+            }
+          ],
+          changelog: { markdown: sanitizedMarkdown },
+          versionSource: { file: manifestPath, type: "node-package-json" },
+          skipRelease: false
+        }
+      ],
+      {
+        info: () => {},
+        warn: () => {},
+        error: () => {}
+      }
+    );
+
+    expect(updatePullMock).toHaveBeenCalledWith(
+      { owner: "acme", name: "rellu" },
+      42,
+      {
+        title: "release(app-1): v1.2.4",
+        body: sanitizedMarkdown
+      }
+    );
+  } finally {
+    mock.restore();
+    restoreWorkspace();
+    await fs.rm(tempDir, { recursive: true, force: true });
   }
 });
 
@@ -279,6 +408,7 @@ test("release PR management honors per-target releasePr.enabled opt-out while gl
 test("release PR management uses per-target branchPrefix and baseBranch overrides", async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "rellu-release-pr-override-"));
   const manifestPath = path.join(tempDir, "package.json");
+  const restoreWorkspace = setWorkspaceRoot(tempDir);
   await fs.writeFile(manifestPath, JSON.stringify({ name: "app-1", version: "1.2.3" }, null, 2), "utf8");
 
   try {
@@ -394,6 +524,7 @@ test("release PR management uses per-target branchPrefix and baseBranch override
     expect(updatePullMock).toHaveBeenCalled();
   } finally {
     mock.restore();
+    restoreWorkspace();
     await fs.rm(tempDir, { recursive: true, force: true });
   }
 });
@@ -450,6 +581,7 @@ test("release PR management fails fast on malformed repository slug", async () =
 test("release PR management blocks force-push when resolved branch is not automation-owned", async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "rellu-release-pr-unsafe-branch-"));
   const manifestPath = path.join(tempDir, "package.json");
+  const restoreWorkspace = setWorkspaceRoot(tempDir);
   await fs.writeFile(manifestPath, JSON.stringify({ name: "app-1", version: "1.2.3" }, null, 2), "utf8");
 
   try {
@@ -528,6 +660,7 @@ test("release PR management blocks force-push when resolved branch is not automa
     expect(createGitHubClientMock).toHaveBeenCalledTimes(1);
   } finally {
     mock.restore();
+    restoreWorkspace();
     await fs.rm(tempDir, { recursive: true, force: true });
   }
 });

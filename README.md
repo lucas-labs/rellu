@@ -73,6 +73,7 @@ Use full git history so ref resolution and commit collection are reliable:
 
 `tagPrefix` is only required when `range-strategy` is `latest-tag-with-prefix`.
 `releasePr` is optional per target and only applies when global `create-release-prs` is enabled.
+`version.file` must resolve to a path inside the repository workspace; out-of-workspace paths fail fast with validation errors.
 
 Per-target release PR settings precedence is:
 1. `target.releasePr.*`
@@ -140,6 +141,7 @@ Behavior notes:
 - custom mapping overlays defaults for unspecified commit types
 - configured section order is applied first; remaining encountered sections are appended in sorted order
 - invalid mapping/order JSON fails fast with clear validation errors
+- commit-derived changelog fields (description, scope, contributor display) are markdown-escaped before rendering
 
 ## Range Strategy Modes
 
@@ -276,6 +278,7 @@ jobs:
 - Release PR mode force-pushes release branches after regenerating from the latest base branch.
 - Before any force-push, branch safety validation is enforced. Unsafe branch resolutions fail fast with a security error.
 - `release-branch-prefix` (or `target.releasePr.branchPrefix`) must resolve to a namespaced release branch format, for example `rellu/release/<target-label>`.
+- Release PR body updates are sourced from sanitized changelog markdown output.
 - Targets skipped by `no-bump-policy: skip` do not create/update release PRs.
 - For skipped/non-releasable targets in release PR mode, `result-json` reports `releasePr.enabled: false` and omits PR identity fields.
 

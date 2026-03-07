@@ -73,3 +73,10 @@ The system MUST treat release branches as automation-owned and may overwrite man
 - **WHEN** release branch configuration resolves to a protected or non-automation branch name (for example default development branches)
 - **THEN** the action rejects the operation and does not execute force-push
 
+### Requirement: Release PR body updates SHALL use sanitized changelog markdown
+When release PR mode creates or updates PR bodies, the body content MUST be sourced from sanitized changelog markdown output so commit-derived user content cannot inject unsafe markdown or unintended mentions.
+
+#### Scenario: Release PR body update includes commit-derived special characters
+- **WHEN** releasable commits contain markdown-special characters or mention-like text
+- **THEN** the created or updated PR body contains escaped markdown-safe content for those fields
+

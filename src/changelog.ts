@@ -1,4 +1,5 @@
 import type { ChangelogConfig } from "./types.js";
+import { escapeMarkdownText } from "./utils/markdown.js";
 
 interface ChangelogCommit {
   sha: string;
@@ -62,7 +63,10 @@ export function renderChangelog(
 
   for (const commit of commits) {
     const section = sectionForType(commit.type, categoryMap);
-    const scopedDescription = commit.scope ? `${commit.scope}: ${commit.description}` : commit.description;
+    const escapedDescription = escapeMarkdownText(commit.description);
+    const escapedScope = commit.scope ? escapeMarkdownText(commit.scope) : null;
+    const escapedDisplayAuthor = escapeMarkdownText(commit.displayAuthor);
+    const scopedDescription = escapedScope ? `${escapedScope}: ${escapedDescription}` : escapedDescription;
     const shaText = formatSha(commit.sha, repo, githubServerUrl);
     const entry = `- ${scopedDescription} (thanks ${commit.displayAuthor}) (${shaText})`;
     if (!groups.has(section)) {

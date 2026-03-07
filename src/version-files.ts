@@ -1,24 +1,38 @@
 import fs from "node:fs/promises";
-import path from "node:path";
 import { ensureParentDirectory } from "./toolkit/io-client.js";
 import type { ManifestType } from "./types.js";
+import { resolveManifestPathInWorkspace } from "./utils/workspace-path.js";
 
 interface JsonRecord {
   [key: string]: unknown;
 }
 
-async function readText(filePath: string): Promise<string> {
+interface ManifestOperationContext {
+  workspaceRoot?: string;
+  targetLabel?: string;
+}
+
+function manifestTargetSuffix(targetLabel?: string): string {
+  return targetLabel ? ` for target "${targetLabel}"` : "";
+}
+
+async function readText(filePath: string, context: ManifestOperationContext): Promise<string> {
+  const absolute = resolveManifestPathInWorkspace(filePath, context);
   try {
-    return await fs.readFile(path.resolve(filePath), "utf8");
+    return await fs.readFile(absolute, "utf8");
   } catch (error) {
-    throw new Error(`Failed reading manifest "${filePath}": ${String(error)}`);
+    throw new Error(`Failed reading manifest "${filePath}"${manifestTargetSuffix(context.targetLabel)}: ${String(error)}`);
   }
 }
 
-async function writeText(filePath: string, content: string): Promise<void> {
-  const absolute = path.resolve(filePath);
-  await ensureParentDirectory(absolute);
-  await fs.writeFile(absolute, content, "utf8");
+async function writeText(filePath: string, content: string, context: ManifestOperationContext): Promise<void> {
+  const absolute = resolveManifestPathInWorkspace(filePath, context);
+  try {
+    await ensureParentDirectory(absolute);
+    await fs.writeFile(absolute, content, "utf8");
+  } catch (error) {
+    throw new Error(`Failed writing manifest "${filePath}"${manifestTargetSuffix(context.targetLabel)}: ${String(error)}`);
+  }
 }
 
 function parseJsonRecord(text: string, filePath: string): JsonRecord {
@@ -87,8 +101,12 @@ function updateTomlSectionVersion(text: string, section: string, nextVersion: st
   return text.replace(sectionPattern, `$1${nextVersion}$3`);
 }
 
-export async function readManifestVersion(filePath: string, type: ManifestType): Promise<string> {
-  const text = await readText(filePath);
+export async function readManifestVersion(
+  filePath: string,
+  type: ManifestType,
+  context: ManifestOperationContext = {}
+): Promise<string> {
+  const text = await readText(filePath, context);
 
   if (type === "node-package-json") {
     const parsed = parseJsonRecord(text, filePath);
@@ -114,16 +132,17 @@ export async function readManifestVersion(filePath: string, type: ManifestType):
 export async function writeManifestVersion(
   filePath: string,
   type: ManifestType,
-  nextVersion: string
+  nextVersion: string,
+  context: ManifestOperationContext = {}
 ): Promise<void> {
-  const text = await readText(filePath);
+  const text = await readText(filePath, context);
   let updated = text;
 
   if (type === "node-package-json") {
     const parsed = parseJsonRecord(text, filePath);
     parsed.version = nextVersion;
     updated = `${JSON.stringify(parsed, null, 2)}\n`;
-    await writeText(filePath, updated);
+    await writeText(filePath, updated, context);
     return;
   }
 
@@ -132,21 +151,21 @@ export async function writeManifestVersion(
     if (updated === text) {
       throw new Error(`Target manifest "${filePath}" missing [package] version field`);
     }
-    await writeText(filePath, updated);
+    await writeText(filePath, updated, context);
     return;
   }
 
   if (type === "python-pyproject-toml") {
     const fromProject = updateTomlSectionVersion(text, "project", nextVersion);
     if (fromProject !== text) {
-      await writeText(filePath, fromProject);
+      await writeText(filePath, fromProject, context);
       return;
     }
     const fromPoetry = updateTomlSectionVersion(text, "tool.poetry", nextVersion);
     if (fromPoetry === text) {
       throw new Error(`Target manifest "${filePath}" missing [project] version or [tool.poetry] version field`);
     }
-    await writeText(filePath, fromPoetry);
+    await writeText(filePath, fromPoetry, context);
     return;
   }
 

@@ -84,3 +84,22 @@ test("renderChangelog appends unspecified sections in deterministic sorted order
   expect(extractHeadings(first)).toEqual(["Maintenance", "Alpha", "Zeta"]);
   expect(first).toBe(second);
 });
+
+test("renderChangelog escapes markdown-special and mention-like commit fields", () => {
+  const markdown = renderChangelog(
+    [
+      commit(
+        "a1b2c3d4",
+        "fix",
+        "render [link](url) and ping @team",
+        "core*@scope",
+        "@alice(bot)"
+      )
+    ],
+    "acme/rellu",
+    "https://api.github.com"
+  );
+
+  expect(markdown).toContain("core\\*\\@scope: render \\[link\\]\\(url\\) and ping \\@team");
+  expect(markdown).toContain("(thanks @alice(bot))");
+});

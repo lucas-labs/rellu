@@ -95,7 +95,9 @@ export async function analyzeRepository(config: RelluConfig, logger: Logger): Pr
     if (!impact) {
       continue;
     }
-    const currentVersion = await readManifestVersion(target.version.file, target.version.type);
+    const currentVersion = await readManifestVersion(target.version.file, target.version.type, {
+      targetLabel: target.label
+    });
 
     const relevantParsed: CommitWithConventional[] = impact.relevantCommits.map((commit) => {
       const parsed = assertConventionalCommitValidity(

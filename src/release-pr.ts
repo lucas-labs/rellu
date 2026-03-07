@@ -50,7 +50,9 @@ async function regenerateReleaseBranch(
   await runCommand("git", ["config", "user.name", "rellu[bot]"]);
   await runCommand("git", ["config", "user.email", "rellu-bot@users.noreply.github.com"]);
 
-  await writeManifestVersion(target.versionSource.file, target.versionSource.type, target.nextVersion);
+  await writeManifestVersion(target.versionSource.file, target.versionSource.type, target.nextVersion, {
+    targetLabel: target.label
+  });
 
   await runCommand("git", ["add", target.versionSource.file]);
   const status = await runCommand("git", ["status", "--porcelain", "--", target.versionSource.file]);
@@ -78,7 +80,8 @@ async function createOrUpdateReleasePr(
 ): Promise<ReleasePrInfo> {
   const branch = getReleaseBranchName(settings.releaseBranchPrefix, target.label);
   const title = `release(${target.label}): v${target.nextVersion}`;
-  const body = target.changelog.markdown || "_No changelog entries._";
+  const sanitizedChangelogMarkdown = target.changelog.markdown;
+  const body = sanitizedChangelogMarkdown || "_No changelog entries._";
 
   await regenerateReleaseBranch(settings.baseBranch, branch, settings.releaseBranchPrefix, target, logger);
 

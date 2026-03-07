@@ -68,6 +68,13 @@ function applyNoBumpPolicy(input) {
 }
 
 //#endregion
+//#region src/utils/markdown.ts
+const MARKDOWN_ESCAPABLE_PATTERN = /([\\`*_{}\[\]()#+.!|>@])/gu;
+function escapeMarkdownText(value) {
+	return value.replace(MARKDOWN_ESCAPABLE_PATTERN, "\\$1");
+}
+
+//#endregion
 //#region src/changelog.ts
 const DEFAULT_CHANGELOG_CATEGORY_MAP = Object.freeze({
 	feat: "Features",
@@ -107,7 +114,10 @@ function renderChangelog(commits, repo, githubServerUrl, config) {
 	const groups = /* @__PURE__ */ new Map();
 	for (const commit of commits) {
 		const section = sectionForType(commit.type, categoryMap);
-		const scopedDescription = commit.scope ? `${commit.scope}: ${commit.description}` : commit.description;
+		const escapedDescription = escapeMarkdownText(commit.description);
+		const escapedScope = commit.scope ? escapeMarkdownText(commit.scope) : null;
+		escapeMarkdownText(commit.displayAuthor);
+		const scopedDescription = escapedScope ? `${escapedScope}: ${escapedDescription}` : escapedDescription;
 		const shaText = formatSha(commit.sha, repo, githubServerUrl);
 		const entry = `- ${scopedDescription} (thanks ${commit.displayAuthor}) (${shaText})`;
 		if (!groups.has(section)) groups.set(section, []);
@@ -21619,18 +21629,46 @@ async function ensureParentDirectory(filePath) {
 }
 
 //#endregion
+//#region src/utils/workspace-path.ts
+function resolveWorkspaceRoot(workspaceRoot) {
+	const rawRoot = workspaceRoot?.trim() || process.env.GITHUB_WORKSPACE?.trim() || process.cwd();
+	return path.resolve(rawRoot);
+}
+function manifestPathValidationError(configuredPath, targetLabel, reason) {
+	const targetPrefix = targetLabel ? ` for target "${targetLabel}"` : "";
+	return /* @__PURE__ */ new Error(`Manifest path validation failed${targetPrefix} for configured path "${configuredPath}": ${reason}`);
+}
+function resolveManifestPathInWorkspace(filePath, options = {}) {
+	const configuredPath = String(filePath ?? "");
+	if (!configuredPath.trim()) throw manifestPathValidationError(configuredPath, options.targetLabel, "path is empty");
+	const workspaceRoot = resolveWorkspaceRoot(options.workspaceRoot);
+	const resolvedPath = path.resolve(workspaceRoot, configuredPath);
+	const relative = path.relative(workspaceRoot, resolvedPath);
+	if (relative.startsWith("..") || path.isAbsolute(relative)) throw manifestPathValidationError(configuredPath, options.targetLabel, `resolved path "${resolvedPath}" is outside workspace root "${workspaceRoot}"`);
+	return resolvedPath;
+}
+
+//#endregion
 //#region src/version-files.ts
-async function readText(filePath) {
+function manifestTargetSuffix(targetLabel) {
+	return targetLabel ? ` for target "${targetLabel}"` : "";
+}
+async function readText(filePath, context) {
+	const absolute = resolveManifestPathInWorkspace(filePath, context);
 	try {
-		return await fs$1.readFile(path.resolve(filePath), "utf8");
+		return await fs$1.readFile(absolute, "utf8");
 	} catch (error) {
-		throw new Error(`Failed reading manifest "${filePath}": ${String(error)}`);
+		throw new Error(`Failed reading manifest "${filePath}"${manifestTargetSuffix(context.targetLabel)}: ${String(error)}`);
 	}
 }
-async function writeText(filePath, content) {
-	const absolute = path.resolve(filePath);
-	await ensureParentDirectory(absolute);
-	await fs$1.writeFile(absolute, content, "utf8");
+async function writeText(filePath, content, context) {
+	const absolute = resolveManifestPathInWorkspace(filePath, context);
+	try {
+		await ensureParentDirectory(absolute);
+		await fs$1.writeFile(absolute, content, "utf8");
+	} catch (error) {
+		throw new Error(`Failed writing manifest "${filePath}"${manifestTargetSuffix(context.targetLabel)}: ${String(error)}`);
+	}
 }
 function parseJsonRecord(text, filePath) {
 	let parsed;
@@ -21675,8 +21713,8 @@ function updateTomlSectionVersion(text, section, nextVersion) {
 	if (!sectionPattern.test(text)) return text;
 	return text.replace(sectionPattern, `$1${nextVersion}$3`);
 }
-async function readManifestVersion(filePath, type) {
-	const text = await readText(filePath);
+async function readManifestVersion(filePath, type, context = {}) {
+	const text = await readText(filePath, context);
 	if (type === "node-package-json") {
 		const parsed = parseJsonRecord(text, filePath);
 		const version = String(parsed.version ?? "").trim();
@@ -21688,31 +21726,31 @@ async function readManifestVersion(filePath, type) {
 	const exhaustiveCheck = type;
 	throw new Error(`Unsupported manifest type "${String(exhaustiveCheck)}"`);
 }
-async function writeManifestVersion(filePath, type, nextVersion) {
-	const text = await readText(filePath);
+async function writeManifestVersion(filePath, type, nextVersion, context = {}) {
+	const text = await readText(filePath, context);
 	let updated = text;
 	if (type === "node-package-json") {
 		const parsed = parseJsonRecord(text, filePath);
 		parsed.version = nextVersion;
 		updated = `${JSON.stringify(parsed, null, 2)}\n`;
-		await writeText(filePath, updated);
+		await writeText(filePath, updated, context);
 		return;
 	}
 	if (type === "rust-cargo-toml") {
 		updated = updateTomlSectionVersion(text, "package", nextVersion);
 		if (updated === text) throw new Error(`Target manifest "${filePath}" missing [package] version field`);
-		await writeText(filePath, updated);
+		await writeText(filePath, updated, context);
 		return;
 	}
 	if (type === "python-pyproject-toml") {
 		const fromProject = updateTomlSectionVersion(text, "project", nextVersion);
 		if (fromProject !== text) {
-			await writeText(filePath, fromProject);
+			await writeText(filePath, fromProject, context);
 			return;
 		}
 		const fromPoetry = updateTomlSectionVersion(text, "tool.poetry", nextVersion);
 		if (fromPoetry === text) throw new Error(`Target manifest "${filePath}" missing [project] version or [tool.poetry] version field`);
-		await writeText(filePath, fromPoetry);
+		await writeText(filePath, fromPoetry, context);
 		return;
 	}
 	const exhaustiveCheck = type;
@@ -21770,7 +21808,7 @@ async function analyzeRepository(config, logger) {
 		}
 		const impact = analyzeTargetImpacts([target], commitsWithConventional)[0];
 		if (!impact) continue;
-		const currentVersion = await readManifestVersion(target.version.file, target.version.type);
+		const currentVersion = await readManifestVersion(target.version.file, target.version.type, { targetLabel: target.label });
 		const relevantParsed = impact.relevantCommits.map((commit) => {
 			const parsed = assertConventionalCommitValidity(commit.conventional, config.strictConventionalCommits, target.label, commit.sha, commit.subject, { isMerge: commit.isMerge });
 			const normalizedType = normalizedCommitType(parsed);
@@ -22903,7 +22941,7 @@ async function regenerateReleaseBranch(baseBranch, branch, releaseBranchPrefix, 
 		"user.email",
 		"rellu-bot@users.noreply.github.com"
 	]);
-	await writeManifestVersion(target.versionSource.file, target.versionSource.type, target.nextVersion);
+	await writeManifestVersion(target.versionSource.file, target.versionSource.type, target.nextVersion, { targetLabel: target.label });
 	await runCommand("git", ["add", target.versionSource.file]);
 	if (!(await runCommand("git", [
 		"status",
