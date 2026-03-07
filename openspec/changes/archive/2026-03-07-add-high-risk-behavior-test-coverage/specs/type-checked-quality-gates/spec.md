@@ -1,6 +1,6 @@
 ## MODIFIED Requirements
 
-### Requirement: Test workflow SHALL remain active alongside type-checking and cover documented high-risk behaviors
+### Requirement: Test workflow SHALL remain active alongside type-checking
 Type-checking MUST complement, not replace, existing runtime unit/integration tests. The automated test suite MUST include explicit coverage for documented high-risk behaviors, including tag-prefix range resolution, strict-mode merge handling, release-branch regeneration semantics, and changelog markdown escaping expectations.
 
 #### Scenario: CI quality gate execution

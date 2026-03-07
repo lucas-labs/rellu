@@ -1,0 +1,32 @@
+{
+  "toRef": "HEAD",
+  "mergedTags": [
+    "app-2@v2.0.0",
+    "app-1@v1.5.0",
+    "other@v9.0.0",
+    "app-2@v1.0.0"
+  ],
+  "tagCommits": {
+    "app-1@v1.5.0": "app1-from-sha",
+    "app-2@v2.0.0": "app2-from-sha"
+  },
+  "firstCommit": "root-sha",
+  "targets": [
+    {
+      "label": "app-1",
+      "tagPrefix": "app-1@v",
+      "expectedRange": "app1-from-sha..to-sha"
+    },
+    {
+      "label": "app-2",
+      "tagPrefix": "app-2@v",
+      "expectedRange": "app2-from-sha..to-sha"
+    },
+    {
+      "label": "app-3",
+      "tagPrefix": "app-3@v",
+      "expectedRange": "root-sha..to-sha",
+      "expectsFallback": true
+    }
+  ]
+}

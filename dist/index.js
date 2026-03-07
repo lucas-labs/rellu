@@ -116,7 +116,6 @@ function renderChangelog(commits, repo, githubServerUrl, config) {
 		const section = sectionForType(commit.type, categoryMap);
 		const escapedDescription = escapeMarkdownText(commit.description);
 		const escapedScope = commit.scope ? escapeMarkdownText(commit.scope) : null;
-		escapeMarkdownText(commit.displayAuthor);
 		const scopedDescription = escapedScope ? `${escapedScope}: ${escapedDescription}` : escapedDescription;
 		const shaText = formatSha(commit.sha, repo, githubServerUrl);
 		const entry = `- ${scopedDescription} (thanks ${commit.displayAuthor}) (${shaText})`;

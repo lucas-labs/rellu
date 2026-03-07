@@ -1,0 +1,26 @@
+{
+  "target": {
+    "label": "app-1",
+    "paths": ["apps/app1/**/*"],
+    "version": {
+      "file": "apps/app1/package.json",
+      "type": "node-package-json"
+    }
+  },
+  "commits": [
+    {
+      "sha": "m1",
+      "subject": "Merge pull request #42 from team/feature-branch",
+      "body": "",
+      "isMerge": true,
+      "files": ["apps/app1/src/merge.ts"]
+    },
+    {
+      "sha": "c2",
+      "subject": "fix(app1): handle null config",
+      "body": "",
+      "isMerge": false,
+      "files": ["apps/app1/src/config.ts"]
+    }
+  ]
+}

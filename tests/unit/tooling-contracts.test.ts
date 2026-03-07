@@ -49,3 +49,10 @@ test("husky pre-commit hook builds and stages dist before commit", async () => {
   expect(hook).toMatch(/bun run build/u);
   expect(hook).toMatch(/git add -A dist/u);
 });
+
+test("ci workflow runs build, typecheck, and runtime tests", async () => {
+  const ciWorkflow = await fs.readFile(path.join(projectRoot, ".github", "workflows", "ci.yml"), "utf8");
+  expect(ciWorkflow).toMatch(/bun run build/u);
+  expect(ciWorkflow).toMatch(/bun run typecheck/u);
+  expect(ciWorkflow).toMatch(/bun run test/u);
+});

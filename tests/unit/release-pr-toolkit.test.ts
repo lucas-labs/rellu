@@ -133,6 +133,109 @@ test("release PR management uses toolkit GitHub client and syncs metadata", asyn
   }
 });
 
+test("release PR regeneration resets branch from base and writes exactly one fresh release commit", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "rellu-release-pr-reset-semantics-"));
+  const manifestPath = path.join(tempDir, "package.json");
+  const restoreWorkspace = setWorkspaceRoot(tempDir);
+  await fs.writeFile(manifestPath, JSON.stringify({ name: "app-1", version: "1.2.3" }, null, 2), "utf8");
+
+  try {
+    const runCommandMock = mock(async (_command: string, args: string[]) => {
+      if (args[0] === "status") {
+        return { stdout: ` M ${manifestPath}\n`, stderr: "", code: 0 };
+      }
+      return { stdout: "", stderr: "", code: 0 };
+    });
+    const createGitHubClientMock = mock(() => ({
+      listPulls: mock(async () => [
+        {
+          number: 42,
+          htmlUrl: "https://example.local/pull/42",
+          title: "release(app-1): v1.2.4",
+          headRef: "rellu/release/app-1"
+        }
+      ]),
+      updatePull: mock(async (_repo, pullNumber: number, options: { title?: string; body?: string }) => ({
+        number: pullNumber,
+        htmlUrl: "https://example.local/pull/42",
+        title: String(options.title ?? ""),
+        headRef: "rellu/release/app-1"
+      })),
+      createPull: mock(async () => {
+        throw new Error("createPull should not be called when existing PR is found");
+      }),
+      getCommitAuthorLogin: mock(async () => ""),
+      getUserLoginByEmail: mock(async () => "")
+    }));
+    const parseRepoRefMock = mock(() => ({ owner: "acme", name: "rellu" }));
+
+    mock.module("../../src/utils/exec.ts", () => ({
+      runCommand: runCommandMock
+    }));
+    mock.module("../../src/toolkit/io-client.ts", () => ({
+      ensureParentDirectory: mock(async () => {})
+    }));
+    mock.module("../../src/toolkit/github-client.ts", () => ({
+      createGitHubClient: createGitHubClientMock,
+      parseRepoRef: parseRepoRefMock
+    }));
+
+    const queryKey = "release-pr-reset-semantics";
+    const { maybeManageReleasePrs } = await import(`../../src/release-pr.ts?${queryKey}`);
+
+    await maybeManageReleasePrs(
+      {
+        createReleasePrs: true,
+        releaseBranchPrefix: "rellu/release",
+        baseBranch: "main",
+        repo: "acme/rellu",
+        githubServerUrl: "https://api.github.com",
+        githubToken: "token-123"
+      },
+      [
+        {
+          label: "app-1",
+          changed: true,
+          matchedFiles: [manifestPath],
+          commitCount: 1,
+          currentVersion: "1.2.3",
+          nextVersion: "1.2.4",
+          bump: "patch",
+          commits: [],
+          changelog: { markdown: "## Bug Fixes\n- fix" },
+          versionSource: { file: manifestPath, type: "node-package-json" },
+          skipRelease: false
+        }
+      ],
+      {
+        info: () => {},
+        warn: () => {},
+        error: () => {}
+      }
+    );
+
+    const checkoutCalls = runCommandMock.mock.calls.filter((call) => call[1]?.[0] === "checkout");
+    expect(checkoutCalls).toHaveLength(1);
+    expect(checkoutCalls[0]?.[1]).toEqual(["checkout", "-B", "rellu/release/app-1", "origin/main"]);
+
+    const commitCalls = runCommandMock.mock.calls.filter((call) => call[1]?.[0] === "commit");
+    expect(commitCalls).toHaveLength(1);
+    expect(commitCalls[0]?.[1]).toEqual(["commit", "-m", "release(app-1): v1.2.4", "--no-verify"]);
+
+    const pushCalls = runCommandMock.mock.calls.filter((call) => call[1]?.[0] === "push");
+    expect(pushCalls).toHaveLength(1);
+    expect(pushCalls[0]?.[1]).toEqual(["push", "origin", "+rellu/release/app-1"]);
+
+    const addCalls = runCommandMock.mock.calls.filter((call) => call[1]?.[0] === "add");
+    expect(addCalls).toHaveLength(1);
+    expect(addCalls[0]?.[1]).toEqual(["add", manifestPath]);
+  } finally {
+    mock.restore();
+    restoreWorkspace();
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("release PR management marks non-releasable targets with disabled releasePr metadata", async () => {
   try {
     const runCommandMock = mock(async () => ({ stdout: "", stderr: "", code: 0 }));
@@ -256,7 +359,7 @@ test("release PR management uses sanitized changelog markdown for PR body update
     const queryKey = "release-pr-sanitized-body";
     const { maybeManageReleasePrs } = await import(`../../src/release-pr.ts?${queryKey}`);
     const sanitizedMarkdown =
-      "## Bug Fixes\n- api: escape \\[link\\]\\(url\\) and ping \\@team (thanks \\@alice\\(bot\\)) ([abc1234](...))";
+      "## Bug Fixes\n- api: escape \\[link\\]\\(url\\) and ping \\@team (thanks @alice(bot)) ([abc1234](...))";
 
     await maybeManageReleasePrs(
       {

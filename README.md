@@ -141,7 +141,8 @@ Behavior notes:
 - custom mapping overlays defaults for unspecified commit types
 - configured section order is applied first; remaining encountered sections are appended in sorted order
 - invalid mapping/order JSON fails fast with clear validation errors
-- commit-derived changelog fields (description, scope, contributor display) are markdown-escaped before rendering
+- commit-derived changelog text fields (for example description/scope) are markdown-escaped before rendering
+- `thanks @username` contributor attributions are intentionally left unescaped so GitHub can link usernames in rendered markdown
 
 ## Range Strategy Modes
 
@@ -310,3 +311,14 @@ bun run test
 
 Husky is configured with a `pre-commit` hook that runs `bun run build`.  
 This keeps committed `dist/` artifacts synchronized with source changes.
+
+## High-Risk Coverage Expectations
+
+The project maintains explicit automated coverage for documented high-risk behaviors:
+
+- per-target `latest-tag-with-prefix` range resolution (including fallback)
+- strict-mode merge handling with valid non-merge conventional commits
+- release branch regeneration/reset semantics in release PR automation
+- changelog markdown escaping and sanitized release PR body output
+
+Coverage mapping is tracked in [`tests/high-risk-coverage-matrix.md`](./tests/high-risk-coverage-matrix.md).
