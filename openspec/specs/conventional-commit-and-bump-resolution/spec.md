@@ -18,7 +18,7 @@ The parser MUST accept valid conventional commit structure even when emoji or ad
 - **THEN** the commit is parsed with `type=refactor` and classified as valid
 
 ### Requirement: Strict mode SHALL fail on invalid relevant commit formats
-When strict mode is enabled, the action MUST fail if any relevant non-merge commit for a changed target is not parseable as a valid conventional commit. Deterministic merge handling MUST NOT cause strict-mode failure solely because a merge commit subject is non-conventional.
+When strict mode is enabled, the action MUST fail if any relevant non-merge commit for a changed target is not parseable as a valid conventional commit. Deterministic merge handling MUST NOT cause strict-mode failure solely because a merge commit subject is non-conventional. Strict mode configuration SHALL accept both native boolean config-file values and boolean strings.
 
 #### Scenario: Invalid non-merge commit appears in strict mode
 - **WHEN** a relevant non-merge commit subject is `updated files`
@@ -27,6 +27,10 @@ When strict mode is enabled, the action MUST fail if any relevant non-merge comm
 #### Scenario: Conventional merge subject noise does not fail strict mode
 - **WHEN** a relevant merge commit subject is `Merge pull request #123 from feature/x` and relevant non-merge commits are valid conventional commits
 - **THEN** strict mode does not fail solely due to the merge subject
+
+#### Scenario: Native JSON boolean enables strict mode
+- **WHEN** config-file sets `strictConventionalCommits` to boolean `true`
+- **THEN** strict mode is enabled for commit validation
 
 ### Requirement: Non-strict mode SHALL classify invalid relevant commits as other
 When strict mode is disabled, invalid relevant commits MUST be preserved and classified as `other` for downstream changelog and bump processing.

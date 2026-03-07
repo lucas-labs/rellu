@@ -20900,11 +20900,25 @@ const DEFAULT_BUMP_RULES = {
 function readInput(name) {
 	return coreClient.getInput(name);
 }
-function toBoolean(value, fallback) {
-	if (!value) return fallback;
+function parseBooleanString(value, source) {
 	if (value === "true") return true;
 	if (value === "false") return false;
-	throw new Error(`Invalid boolean value "${value}"`);
+	throw new Error(`Invalid boolean value "${value}" for ${source}. Expected "true" or "false".`);
+}
+function describeValue(value) {
+	if (value === null) return "null";
+	if (Array.isArray(value)) return "array";
+	return typeof value;
+}
+function parseConfigBoolean(value, configKey) {
+	if (value === void 0) return;
+	if (typeof value === "boolean") return value;
+	if (typeof value === "string") return parseBooleanString(value.trim(), `config-file.${configKey}`);
+	throw new Error(`Invalid boolean value type for config-file.${configKey}: got ${describeValue(value)}. Expected boolean or string "true"/"false".`);
+}
+function resolveBooleanOption(inputName, inputValue, configValue, configKey, fallback) {
+	if (inputValue) return parseBooleanString(inputValue, `input "${inputName}"`);
+	return parseConfigBoolean(configValue, configKey) ?? fallback;
 }
 function parseJson(input) {
 	try {
@@ -21001,8 +21015,8 @@ function loadConfig() {
 	}
 	const noBumpPolicyRaw = readInput("no-bump-policy") || asOptionalString(fileConfig.noBumpPolicy) || "skip";
 	if (!SUPPORTED_NO_BUMP_POLICIES.has(noBumpPolicyRaw)) throw new Error(`Invalid no-bump-policy "${noBumpPolicyRaw}". Expected skip, keep, or patch.`);
-	const strictRaw = readInput("strict-conventional-commits") || asOptionalString(fileConfig.strictConventionalCommits);
-	const createReleasePrsRaw = readInput("create-release-prs") || asOptionalString(fileConfig.createReleasePrs);
+	const strictInput = readInput("strict-conventional-commits");
+	const createReleasePrsInput = readInput("create-release-prs");
 	const releaseBranchPrefix = readInput("release-branch-prefix") || asOptionalString(fileConfig.releaseBranchPrefix) || "rellu/release";
 	const baseBranch = readInput("base-branch") || asOptionalString(fileConfig.baseBranch) || "main";
 	const repo = readInput("repo") || asOptionalString(fileConfig.repo) || asOptionalString(process.env.GITHUB_REPOSITORY);
@@ -21012,10 +21026,10 @@ function loadConfig() {
 		rangeStrategy: rangeStrategyRaw,
 		fromRef,
 		toRef,
-		strictConventionalCommits: toBoolean(strictRaw, false),
+		strictConventionalCommits: resolveBooleanOption("strict-conventional-commits", strictInput, fileConfig.strictConventionalCommits, "strictConventionalCommits", false),
 		bumpRules,
 		noBumpPolicy: noBumpPolicyRaw,
-		createReleasePrs: toBoolean(createReleasePrsRaw, false),
+		createReleasePrs: resolveBooleanOption("create-release-prs", createReleasePrsInput, fileConfig.createReleasePrs, "createReleasePrs", false),
 		releaseBranchPrefix,
 		baseBranch,
 		repo,

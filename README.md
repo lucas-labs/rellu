@@ -63,6 +63,28 @@ Use full git history so ref resolution and commit collection are reliable:
 
 `tagPrefix` is only required when `range-strategy` is `latest-tag-with-prefix`.
 
+## Config File Boolean Options
+
+In `config-file` JSON, the following keys accept either native booleans or string booleans:
+
+- `strictConventionalCommits`
+- `createReleasePrs`
+
+Accepted values:
+
+- `true` / `false`
+- `"true"` / `"false"`
+
+Invalid types or strings fail fast with a clear config error.
+Workflow inputs still use string values (for example `strict-conventional-commits: "true"`).
+
+```json
+{
+  "strictConventionalCommits": true,
+  "createReleasePrs": false
+}
+```
+
 ## Range Strategy Modes
 
 - `explicit`: uses `from-ref..to-ref` (defaults to first commit..`HEAD` when `from-ref` is omitted)

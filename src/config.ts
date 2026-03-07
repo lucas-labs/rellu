@@ -52,17 +52,56 @@ function readInput(name: string): string {
   return coreClient.getInput(name);
 }
 
-function toBoolean(value: string, fallback: boolean): boolean {
-  if (!value) {
-    return fallback;
-  }
+function parseBooleanString(value: string, source: string): boolean {
   if (value === "true") {
     return true;
   }
   if (value === "false") {
     return false;
   }
-  throw new Error(`Invalid boolean value "${value}"`);
+  throw new Error(`Invalid boolean value "${value}" for ${source}. Expected "true" or "false".`);
+}
+
+function describeValue(value: unknown): string {
+  if (value === null) {
+    return "null";
+  }
+  if (Array.isArray(value)) {
+    return "array";
+  }
+  return typeof value;
+}
+
+function parseConfigBoolean(value: unknown, configKey: string): boolean | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "string") {
+    return parseBooleanString(value.trim(), `config-file.${configKey}`);
+  }
+
+  throw new Error(
+    `Invalid boolean value type for config-file.${configKey}: got ${describeValue(value)}. ` +
+      `Expected boolean or string "true"/"false".`
+  );
+}
+
+function resolveBooleanOption(
+  inputName: string,
+  inputValue: string,
+  configValue: unknown,
+  configKey: string,
+  fallback: boolean
+): boolean {
+  if (inputValue) {
+    return parseBooleanString(inputValue, `input "${inputName}"`);
+  }
+
+  const fromConfig = parseConfigBoolean(configValue, configKey);
+  return fromConfig ?? fallback;
 }
 
 function parseJson(input: string): unknown {
@@ -218,8 +257,8 @@ export function loadConfig(): RelluConfig {
     throw new Error(`Invalid no-bump-policy "${noBumpPolicyRaw}". Expected skip, keep, or patch.`);
   }
 
-  const strictRaw = readInput("strict-conventional-commits") || asOptionalString(fileConfig.strictConventionalCommits);
-  const createReleasePrsRaw = readInput("create-release-prs") || asOptionalString(fileConfig.createReleasePrs);
+  const strictInput = readInput("strict-conventional-commits");
+  const createReleasePrsInput = readInput("create-release-prs");
 
   const releaseBranchPrefix = readInput("release-branch-prefix") || asOptionalString(fileConfig.releaseBranchPrefix) || "rellu/release";
   const baseBranch = readInput("base-branch") || asOptionalString(fileConfig.baseBranch) || "main";
@@ -234,10 +273,22 @@ export function loadConfig(): RelluConfig {
     rangeStrategy: rangeStrategyRaw,
     fromRef,
     toRef,
-    strictConventionalCommits: toBoolean(strictRaw, false),
+    strictConventionalCommits: resolveBooleanOption(
+      "strict-conventional-commits",
+      strictInput,
+      fileConfig.strictConventionalCommits,
+      "strictConventionalCommits",
+      false
+    ),
     bumpRules,
     noBumpPolicy: noBumpPolicyRaw,
-    createReleasePrs: toBoolean(createReleasePrsRaw, false),
+    createReleasePrs: resolveBooleanOption(
+      "create-release-prs",
+      createReleasePrsInput,
+      fileConfig.createReleasePrs,
+      "createReleasePrs",
+      false
+    ),
     releaseBranchPrefix,
     baseBranch,
     repo,
