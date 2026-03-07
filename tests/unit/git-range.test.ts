@@ -22,7 +22,8 @@ test("resolveGitRangeWithStrategy resolves explicit refs deterministically", asy
     mock.module("../../src/utils/exec.ts", () => ({
       runCommand: runCommandMock
     }));
-    const { resolveGitRangeWithStrategy } = await import("../../src/git.ts?git-range-explicit");
+    const queryKey = "git-range-explicit";
+    const { resolveGitRangeWithStrategy } = await import(`../../src/git.ts?${queryKey}`);
     const logger = createLogger();
 
     const range = await resolveGitRangeWithStrategy(
@@ -67,7 +68,8 @@ test("resolveGitRangeWithStrategy resolves latest matching tag for target prefix
     mock.module("../../src/utils/exec.ts", () => ({
       runCommand: runCommandMock
     }));
-    const { resolveGitRangeWithStrategy } = await import("../../src/git.ts?git-range-prefix");
+    const queryKey = "git-range-prefix";
+    const { resolveGitRangeWithStrategy } = await import(`../../src/git.ts?${queryKey}`);
     const logger = createLogger();
 
     const range = await resolveGitRangeWithStrategy(
@@ -113,7 +115,8 @@ test("latest-tag-with-prefix falls back to first commit when no tag matches", as
     mock.module("../../src/utils/exec.ts", () => ({
       runCommand: runCommandMock
     }));
-    const { resolveGitRangeWithStrategy } = await import("../../src/git.ts?git-range-fallback");
+    const queryKey = "git-range-fallback";
+    const { resolveGitRangeWithStrategy } = await import(`../../src/git.ts?${queryKey}`);
     const logger = createLogger();
 
     const range = await resolveGitRangeWithStrategy(

@@ -18903,7 +18903,11 @@ function toPullRequest(data) {
 	};
 }
 function parseRepoRef(repo) {
-	const [owner, name] = repo.split("/");
+	const parts = repo.split("/");
+	if (parts.length !== 2) return null;
+	const [rawOwner = "", rawName = ""] = parts;
+	const owner = rawOwner.trim();
+	const name = rawName.trim();
 	if (!owner || !name) return null;
 	return {
 		owner,
@@ -21154,13 +21158,7 @@ async function maybeManageReleasePrs(config, results, logger) {
 		anyCreatedOrUpdated: false
 	};
 	const repo = parseRepoRef(config.repo);
-	if (!repo) {
-		logger.warn("Release PR mode enabled but repository slug is missing. Skipping PR automation.");
-		return {
-			updatedResults: results,
-			anyCreatedOrUpdated: false
-		};
-	}
+	if (!repo) throw new Error(`Invalid repository slug "${config.repo}". Expected format "owner/name" with exactly two non-empty segments.`);
 	if (!config.githubToken) {
 		logger.warn("Release PR mode enabled but GITHUB_TOKEN is missing. Skipping PR automation.");
 		return {
@@ -21176,11 +21174,7 @@ async function maybeManageReleasePrs(config, results, logger) {
 			if (result.changed) logger.warn(`Skipping release PR for ${result.label}: non-releasable target under current policy.`);
 			updatedResults.push({
 				...result,
-				releasePr: {
-					enabled: true,
-					branch: getReleaseBranchName(config.releaseBranchPrefix, result.label),
-					title: `release(${result.label}): v${result.nextVersion}`
-				}
+				releasePr: { enabled: false }
 			});
 			continue;
 		}

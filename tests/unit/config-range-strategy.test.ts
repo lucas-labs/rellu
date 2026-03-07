@@ -30,7 +30,8 @@ test("loadConfig accepts latest-tag-with-prefix when all targets include tagPref
       }
     }));
 
-    const { loadConfig } = await import("../../src/config.ts?config-range-success");
+    const queryKey = "config-range-success";
+    const { loadConfig } = await import(`../../src/config.ts?${queryKey}`);
     const config = loadConfig();
     expect(config.rangeStrategy).toBe("latest-tag-with-prefix");
     expect(config.targets[0]?.tagPrefix).toBe("app-1@v");
@@ -67,7 +68,8 @@ test("loadConfig rejects latest-tag-with-prefix when target tagPrefix is missing
       }
     }));
 
-    const { loadConfig } = await import("../../src/config.ts?config-range-fail");
+    const queryKey = "config-range-fail";
+    const { loadConfig } = await import(`../../src/config.ts?${queryKey}`);
     expect(() => loadConfig()).toThrow(/requires tagPrefix on every target/);
   } finally {
     mock.restore();

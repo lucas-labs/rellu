@@ -20,7 +20,7 @@ test("package scripts are Bun-based and build uses tsdown", async () => {
   const pkg = await readJson("package.json");
   expect(String(pkg.packageManager ?? "")).toMatch(/^bun@/u);
   expect(String(pkg.scripts.build ?? "")).toMatch(/\btsdown\b/u);
-  expect(pkg.scripts.typecheck).toBe("tsc --project tsconfig.json --noEmit");
+  expect(pkg.scripts.typecheck).toBe("tsc --project tsconfig.json --noEmit && tsc --project tests/tsconfig.json --noEmit");
   expect(pkg.scripts.test).toBe("bun test");
   const deps = pkg.dependencies ?? {};
   expect(typeof deps["@actions/core"]).toBe("string");

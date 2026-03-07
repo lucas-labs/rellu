@@ -45,12 +45,16 @@ test("release PR management uses toolkit GitHub client and syncs metadata", asyn
     mock.module("../../src/utils/exec.ts", () => ({
       runCommand: runCommandMock
     }));
+    mock.module("../../src/toolkit/io-client.ts", () => ({
+      ensureParentDirectory: mock(async () => {})
+    }));
     mock.module("../../src/toolkit/github-client.ts", () => ({
       createGitHubClient: createGitHubClientMock,
       parseRepoRef: parseRepoRefMock
     }));
 
-    const { maybeManageReleasePrs } = await import("../../src/release-pr.ts");
+    const queryKey = "release-pr-existing-open";
+    const { maybeManageReleasePrs } = await import(`../../src/release-pr.ts?${queryKey}`);
 
     const outcome = await maybeManageReleasePrs(
       {
@@ -99,5 +103,125 @@ test("release PR management uses toolkit GitHub client and syncs metadata", asyn
   } finally {
     mock.restore();
     await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("release PR management marks non-releasable targets with disabled releasePr metadata", async () => {
+  try {
+    const runCommandMock = mock(async () => ({ stdout: "", stderr: "", code: 0 }));
+    const createGitHubClientMock = mock(() => ({
+      listPulls: mock(async () => []),
+      updatePull: mock(async () => {
+        throw new Error("updatePull should not be called for non-releasable targets");
+      }),
+      createPull: mock(async () => {
+        throw new Error("createPull should not be called for non-releasable targets");
+      }),
+      getCommitAuthorLogin: mock(async () => ""),
+      getUserLoginByEmail: mock(async () => "")
+    }));
+    const parseRepoRefMock = mock(() => ({ owner: "acme", name: "rellu" }));
+
+    mock.module("../../src/utils/exec.ts", () => ({
+      runCommand: runCommandMock
+    }));
+    mock.module("../../src/toolkit/io-client.ts", () => ({
+      ensureParentDirectory: mock(async () => {})
+    }));
+    mock.module("../../src/toolkit/github-client.ts", () => ({
+      createGitHubClient: createGitHubClientMock,
+      parseRepoRef: parseRepoRefMock
+    }));
+
+    const queryKey = "release-pr-skipped-target";
+    const { maybeManageReleasePrs } = await import(`../../src/release-pr.ts?${queryKey}`);
+    const outcome = await maybeManageReleasePrs(
+      {
+        createReleasePrs: true,
+        releaseBranchPrefix: "rellu/release",
+        baseBranch: "main",
+        repo: "acme/rellu",
+        githubServerUrl: "https://api.github.com",
+        githubToken: "token-123"
+      },
+      [
+        {
+          label: "app-1",
+          changed: true,
+          matchedFiles: ["apps/app1/src/index.ts"],
+          commitCount: 1,
+          currentVersion: "1.2.3",
+          nextVersion: "1.2.3",
+          bump: "none",
+          commits: [],
+          changelog: { markdown: "## No Releases" },
+          versionSource: { file: "apps/app1/package.json", type: "node-package-json" },
+          skipRelease: true
+        }
+      ],
+      {
+        info: () => {},
+        warn: () => {},
+        error: () => {}
+      }
+    );
+
+    expect(outcome.anyCreatedOrUpdated).toBe(false);
+    expect(outcome.updatedResults[0]?.releasePr).toEqual({ enabled: false });
+    expect(outcome.updatedResults[0]?.releasePr?.branch).toBeUndefined();
+    expect(outcome.updatedResults[0]?.releasePr?.number).toBeUndefined();
+    expect(createGitHubClientMock).toHaveBeenCalledTimes(1);
+    expect(runCommandMock).toHaveBeenCalledTimes(0);
+  } finally {
+    mock.restore();
+  }
+});
+
+test("release PR management fails fast on malformed repository slug", async () => {
+  try {
+    const createGitHubClientMock = mock(() => ({
+      listPulls: mock(async () => []),
+      updatePull: mock(async () => {
+        throw new Error("updatePull should not be called for malformed repo");
+      }),
+      createPull: mock(async () => {
+        throw new Error("createPull should not be called for malformed repo");
+      }),
+      getCommitAuthorLogin: mock(async () => ""),
+      getUserLoginByEmail: mock(async () => "")
+    }));
+    const parseRepoRefMock = mock(() => null);
+
+    mock.module("../../src/toolkit/github-client.ts", () => ({
+      createGitHubClient: createGitHubClientMock,
+      parseRepoRef: parseRepoRefMock
+    }));
+    mock.module("../../src/toolkit/io-client.ts", () => ({
+      ensureParentDirectory: mock(async () => {})
+    }));
+
+    const queryKey = "release-pr-invalid-repo";
+    const { maybeManageReleasePrs } = await import(`../../src/release-pr.ts?${queryKey}`);
+    await expect(
+      maybeManageReleasePrs(
+        {
+          createReleasePrs: true,
+          releaseBranchPrefix: "rellu/release",
+          baseBranch: "main",
+          repo: "acme/rellu/extra",
+          githubServerUrl: "https://api.github.com",
+          githubToken: "token-123"
+        },
+        [],
+        {
+          info: () => {},
+          warn: () => {},
+          error: () => {}
+        }
+      )
+    ).rejects.toThrow(/Expected format "owner\/name"/);
+    expect(createGitHubClientMock).toHaveBeenCalledTimes(0);
+  } finally {
+    mock.restore();
   }
 });

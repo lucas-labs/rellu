@@ -40,11 +40,15 @@ The system SHALL create or update PR title and body from computed target version
 - **THEN** the action performs the API operations through the initialized toolkit GitHub client for the current repository context
 
 ### Requirement: Non-releasable targets SHALL be skipped in release PR mode
-Targets with `changed=false` or no releasable next version under active no-bump policy MUST NOT create or update release PRs.
+Targets with `changed=false` or no releasable next version under active no-bump policy MUST NOT create or update release PRs. For skipped targets, per-target output metadata MUST NOT imply a release PR exists.
 
 #### Scenario: Changed target skipped by no-bump skip policy
 - **WHEN** target changed only through non-bump-worthy commits and policy is `skip`
 - **THEN** no release PR is created for that target and skip reason is logged
+
+#### Scenario: Skipped target does not advertise enabled release PR metadata
+- **WHEN** release PR mode is enabled but a target is non-releasable and no PR create/update operation runs
+- **THEN** that target's `releasePr` metadata reports `enabled=false` and does not include PR identity fields
 
 ### Requirement: Automation-owned release branches MUST tolerate manual edits being overwritten
 The system MUST treat release branches as automation-owned and may overwrite manual branch changes during regeneration.
@@ -52,4 +56,3 @@ The system MUST treat release branches as automation-owned and may overwrite man
 #### Scenario: Manual commit exists on release branch
 - **WHEN** the next release PR update run executes
 - **THEN** the branch is force-reset to regenerated automation content and manual edits are discarded
-

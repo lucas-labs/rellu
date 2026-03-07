@@ -114,8 +114,8 @@ export interface ChangelogData {
 
 export interface ReleasePrInfo {
   enabled: boolean;
-  branch: string;
-  title: string;
+  branch?: string;
+  title?: string;
   number?: number;
   url?: string;
 }

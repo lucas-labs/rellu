@@ -115,8 +115,9 @@ export async function maybeManageReleasePrs(
 
   const repo = parseRepoRef(config.repo);
   if (!repo) {
-    logger.warn("Release PR mode enabled but repository slug is missing. Skipping PR automation.");
-    return { updatedResults: results, anyCreatedOrUpdated: false };
+    throw new Error(
+      `Invalid repository slug "${config.repo}". Expected format "owner/name" with exactly two non-empty segments.`
+    );
   }
   if (!config.githubToken) {
     logger.warn("Release PR mode enabled but GITHUB_TOKEN is missing. Skipping PR automation.");
@@ -137,9 +138,7 @@ export async function maybeManageReleasePrs(
       updatedResults.push({
         ...result,
         releasePr: {
-          enabled: true,
-          branch: getReleaseBranchName(config.releaseBranchPrefix, result.label),
-          title: `release(${result.label}): v${result.nextVersion}`
+          enabled: false
         }
       });
       continue;

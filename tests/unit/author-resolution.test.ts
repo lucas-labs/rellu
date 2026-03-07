@@ -33,7 +33,8 @@ test("enrichCommitsWithGitHubUsernames applies association -> email -> author-na
         getUserLoginByEmail: getUserLoginByEmailMock
       })
     }));
-    const { enrichCommitsWithGitHubUsernames } = await import("../../src/git.ts?author-resolution");
+    const queryKey = "author-resolution";
+    const { enrichCommitsWithGitHubUsernames } = await import(`../../src/git.ts?${queryKey}`);
 
     const commits = [
       {

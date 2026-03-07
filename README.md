@@ -110,6 +110,8 @@ Unsupported Python layouts fail with a clear error.
 | `result-json` | Full per-target analysis JSON payload |
 | `release-prs-created` | `true` when release PR mode created/updated at least one PR |
 
+`repo` must be exactly `owner/name` when release PR mode is enabled. Malformed values (for example `owner/name/extra`, `/name`, or `owner/`) fail fast.
+
 ## Strict Mode and Merge Commits
 
 `strict-conventional-commits: "true"` validates relevant non-merge commits as conventional commits.  
@@ -148,6 +150,18 @@ Non-conventional merge subjects (for example `Merge pull request ...`) are still
     "title": "release(app-1): v1.2.4",
     "number": 123,
     "url": "https://github.com/org/repo/pull/123"
+  }
+}
+```
+
+When release PR mode is enabled but a target is non-releasable, `releasePr` is present as disabled metadata and does not include PR identity fields:
+
+```json
+{
+  "label": "app-2",
+  "changed": true,
+  "releasePr": {
+    "enabled": false
   }
 }
 ```
@@ -191,6 +205,7 @@ jobs:
 - Release branches are automation-owned. Manual branch edits can be overwritten.
 - Release PR mode force-pushes release branches after regenerating from the latest base branch.
 - Targets skipped by `no-bump-policy: skip` do not create/update release PRs.
+- For skipped/non-releasable targets in release PR mode, `result-json` reports `releasePr.enabled: false` and omits PR identity fields.
 
 ## Runtime Toolkit Conventions
 

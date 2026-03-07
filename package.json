@@ -8,7 +8,7 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsdown \"src/index.ts\" --config \"tsdown.config.ts\" --out-dir \"dist\"",
-    "typecheck": "tsc --project tsconfig.json --noEmit",
+    "typecheck": "tsc --project tsconfig.json --noEmit && tsc --project tests/tsconfig.json --noEmit",
     "test": "bun test",
     "test:ci": "bun run build && bun run typecheck && bun test",
     "prepare": "husky"

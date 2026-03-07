@@ -28,3 +28,46 @@ test("writeActionOutputs keeps stable top-level output keys", async () => {
     mock.restore();
   }
 });
+
+test("writeActionOutputs preserves result-json contract for skipped target releasePr metadata", async () => {
+  const setOutputMock = mock((_name: string, _value: string) => {});
+  try {
+    mock.module("../../src/toolkit/core-client.ts", () => ({
+      coreClient: {
+        getInput: () => "",
+        setOutput: setOutputMock,
+        info: () => {},
+        warn: () => {},
+        error: () => {},
+        setFailed: () => {}
+      }
+    }));
+
+    const queryKey = "output-contract-release-pr";
+    const { writeActionOutputs } = await import(`../../src/output.ts?${queryKey}`);
+    const resultPayload = [
+      {
+        label: "app-1",
+        changed: true,
+        releasePr: {
+          enabled: false
+        }
+      }
+    ];
+    writeActionOutputs({
+      changedTargets: ["app-1"],
+      hasChanges: true,
+      resultJson: JSON.stringify(resultPayload),
+      releasePrsCreated: false
+    });
+
+    const resultJsonCall = setOutputMock.mock.calls.find((call) => String(call[0]) === "result-json");
+    expect(resultJsonCall).toBeDefined();
+    const parsed = JSON.parse(String(resultJsonCall?.[1] ?? "[]"));
+    expect(parsed[0]?.releasePr?.enabled).toBe(false);
+    expect(parsed[0]?.releasePr?.branch).toBeUndefined();
+    expect(parsed[0]?.releasePr?.number).toBeUndefined();
+  } finally {
+    mock.restore();
+  }
+});

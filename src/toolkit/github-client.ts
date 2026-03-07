@@ -29,7 +29,14 @@ function toPullRequest(data: {
 }
 
 export function parseRepoRef(repo: string): GitHubRepoRef | null {
-  const [owner, name] = repo.split("/");
+  const parts = repo.split("/");
+  if (parts.length !== 2) {
+    return null;
+  }
+
+  const [rawOwner = "", rawName = ""] = parts;
+  const owner = rawOwner.trim();
+  const name = rawName.trim();
   if (!owner || !name) {
     return null;
   }
