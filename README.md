@@ -63,6 +63,17 @@ Use full git history so ref resolution and commit collection are reliable:
 
 `tagPrefix` is only required when `range-strategy` is `latest-tag-with-prefix`.
 
+## Target Path Glob Semantics
+
+Target `paths` use standard glob semantics (via `picomatch`), including:
+
+- recursive wildcards: `**`
+- single-segment wildcards: `*` and `?`
+- brace expansion: `{web,admin}`
+- character classes: `[ab]`
+
+Invalid glob syntax fails fast during config loading and reports the target label plus offending pattern.
+
 ## Config File Boolean Options
 
 In `config-file` JSON, the following keys accept either native booleans or string booleans:

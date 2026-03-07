@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { coreClient } from "./toolkit/core-client.js";
 import type { BumpLevel, NoBumpPolicy, RangeStrategy, RelluConfig, TargetConfig, VersionSource } from "./types.js";
-import { globToRegExp, toPosixPath } from "./utils/paths.js";
+import { toPosixPath, validateGlobPattern } from "./utils/paths.js";
 
 type ConfigFile = Partial<{
   targets: unknown;
@@ -155,7 +155,7 @@ function parseTarget(targetValue: unknown, index: number): TargetConfig {
       throw new Error(`Target "${label}" has an empty path glob`);
     }
     try {
-      globToRegExp(glob);
+      validateGlobPattern(glob);
     } catch (error) {
       throw new Error(`Target "${label}" has invalid glob "${glob}": ${String(error)}`);
     }

@@ -36,6 +36,24 @@ A target MUST be marked `changed=true` when at least one file in the analyzed ra
 - **WHEN** a commit in range changes `apps/app1/src/index.ts` and the target owns `apps/app1/**/*`
 - **THEN** the target is marked changed and `matchedFiles` includes `apps/app1/src/index.ts`
 
+### Requirement: Target path matching SHALL use standard glob semantics
+The system MUST evaluate target `paths` using standard glob semantics provided by a mature glob implementation, including support for common monorepo patterns such as brace expansion and character classes, while preserving deterministic matching behavior.
+
+#### Scenario: Brace expansion pattern matches changed file
+- **WHEN** a target path pattern is `apps/{web,admin}/src/**` and a commit changes `apps/web/src/main.ts`
+- **THEN** the file is treated as matched for that target
+
+#### Scenario: Character class pattern matches changed file
+- **WHEN** a target path pattern is `packages/lib-[ab]/**` and a commit changes `packages/lib-a/index.ts`
+- **THEN** the file is treated as matched for that target
+
+### Requirement: Invalid target glob patterns SHALL fail fast
+If any configured target path pattern is syntactically invalid for the supported glob syntax, the action MUST fail validation before analysis with a clear error that identifies the target and invalid pattern.
+
+#### Scenario: Invalid glob pattern is configured
+- **WHEN** a target path pattern is invalid glob syntax
+- **THEN** the action fails before commit analysis and reports the target label and offending pattern
+
 ### Requirement: Shared paths SHALL assign commits to all matching targets
 A commit that modifies files matching multiple target path sets SHALL be considered relevant to each matching target independently.
 
@@ -53,4 +71,3 @@ The system MUST apply a documented, deterministic strategy for merge commits so 
 #### Scenario: Repeated analysis over same refs with merges
 - **WHEN** the same range containing merge commits is analyzed multiple times
 - **THEN** target `changed`, `matchedFiles`, and `commitCount` outputs are identical across runs
-

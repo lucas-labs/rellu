@@ -1,53 +1,50 @@
+import picomatch from "picomatch";
+
 export function toPosixPath(value: string): string {
   return value.replace(/\\/g, "/");
 }
 
-function escapeRegex(value: string): string {
-  return value.replace(/[|\\{}()[\]^$+?.]/g, "\\$&");
-}
+const globMatcherCache = new Map<string, (input: string) => boolean>();
 
-export function globToRegExp(glob: string): RegExp {
+function normalizeGlob(glob: string): string {
   const normalized = toPosixPath(glob.trim());
   if (!normalized) {
     throw new Error("Glob cannot be empty");
   }
+  return normalized;
+}
 
-  let pattern = "^";
-  for (let index = 0; index < normalized.length; index += 1) {
-    const char = normalized[index] ?? "";
-    const next = normalized[index + 1];
+function createGlobMatcher(glob: string): (input: string) => boolean {
+  const normalized = normalizeGlob(glob);
+  try {
+    return picomatch(normalized, {
+      dot: true,
+      posixSlashes: true,
+      strictBrackets: true
+    });
+  } catch (error) {
+    throw new Error(`Invalid glob syntax "${normalized}": ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
 
-    if (char === "*" && next === "*") {
-      const nextNext = normalized[index + 2];
-      if (nextNext === "/") {
-        pattern += "(?:.*/)?";
-        index += 2;
-      } else {
-        pattern += ".*";
-        index += 1;
-      }
-      continue;
-    }
-
-    if (char === "*") {
-      pattern += "[^/]*";
-      continue;
-    }
-
-    if (char === "?") {
-      pattern += "[^/]";
-      continue;
-    }
-
-    pattern += escapeRegex(char);
+function getGlobMatcher(glob: string): (input: string) => boolean {
+  const normalized = normalizeGlob(glob);
+  const cached = globMatcherCache.get(normalized);
+  if (cached) {
+    return cached;
   }
 
-  pattern += "$";
-  return new RegExp(pattern);
+  const matcher = createGlobMatcher(normalized);
+  globMatcherCache.set(normalized, matcher);
+  return matcher;
+}
+
+export function validateGlobPattern(glob: string): void {
+  createGlobMatcher(glob);
 }
 
 export function isGlobMatch(filePath: string, glob: string): boolean {
-  return globToRegExp(glob).test(toPosixPath(filePath));
+  return getGlobMatcher(glob)(toPosixPath(filePath));
 }
 
 export function uniqueSortedPosix(files: string[]): string[] {
