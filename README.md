@@ -33,7 +33,7 @@ Use full git history so ref resolution and commit collection are reliable:
 | `changelog-section-order` | No | defaults | JSON array for preferred changelog section order |
 | `no-bump-policy` | No | `skip` | `skip`, `keep`, or `patch` |
 | `create-release-prs` | No | `false` | Enable release PR mode |
-| `release-branch-prefix` | No | `rellu/release` | Prefix used for release branches |
+| `release-branch-prefix` | No | `rellu/release` | Prefix used for release branches (must be automation-owned release namespace) |
 | `base-branch` | No | `main` | Base branch for release PRs |
 | `repo` | No | `$GITHUB_REPOSITORY` | Explicit `owner/repo` |
 | `github-server-url` | No | `https://api.github.com` | API base URL |
@@ -274,6 +274,8 @@ jobs:
 
 - Release branches are automation-owned. Manual branch edits can be overwritten.
 - Release PR mode force-pushes release branches after regenerating from the latest base branch.
+- Before any force-push, branch safety validation is enforced. Unsafe branch resolutions fail fast with a security error.
+- `release-branch-prefix` (or `target.releasePr.branchPrefix`) must resolve to a namespaced release branch format, for example `rellu/release/<target-label>`.
 - Targets skipped by `no-bump-policy: skip` do not create/update release PRs.
 - For skipped/non-releasable targets in release PR mode, `result-json` reports `releasePr.enabled: false` and omits PR identity fields.
 

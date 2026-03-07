@@ -446,3 +446,88 @@ test("release PR management fails fast on malformed repository slug", async () =
     mock.restore();
   }
 });
+
+test("release PR management blocks force-push when resolved branch is not automation-owned", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "rellu-release-pr-unsafe-branch-"));
+  const manifestPath = path.join(tempDir, "package.json");
+  await fs.writeFile(manifestPath, JSON.stringify({ name: "app-1", version: "1.2.3" }, null, 2), "utf8");
+
+  try {
+    const runCommandMock = mock(async (_command: string, args: string[]) => {
+      if (args[0] === "status") {
+        return { stdout: ` M ${manifestPath}\n`, stderr: "", code: 0 };
+      }
+      return { stdout: "", stderr: "", code: 0 };
+    });
+    const createGitHubClientMock = mock(() => ({
+      listPulls: mock(async () => {
+        throw new Error("listPulls should not be reached when branch safety fails");
+      }),
+      updatePull: mock(async () => {
+        throw new Error("updatePull should not be reached when branch safety fails");
+      }),
+      createPull: mock(async () => {
+        throw new Error("createPull should not be reached when branch safety fails");
+      }),
+      getCommitAuthorLogin: mock(async () => ""),
+      getUserLoginByEmail: mock(async () => "")
+    }));
+    const parseRepoRefMock = mock(() => ({ owner: "acme", name: "rellu" }));
+
+    mock.module("../../src/utils/exec.ts", () => ({
+      runCommand: runCommandMock
+    }));
+    mock.module("../../src/toolkit/io-client.ts", () => ({
+      ensureParentDirectory: mock(async () => {})
+    }));
+    mock.module("../../src/toolkit/github-client.ts", () => ({
+      createGitHubClient: createGitHubClientMock,
+      parseRepoRef: parseRepoRefMock
+    }));
+
+    const queryKey = "release-pr-unsafe-branch-force-push-block";
+    const { maybeManageReleasePrs } = await import(`../../src/release-pr.ts?${queryKey}`);
+
+    await expect(
+      maybeManageReleasePrs(
+        {
+          createReleasePrs: true,
+          releaseBranchPrefix: "main",
+          baseBranch: "main",
+          repo: "acme/rellu",
+          githubServerUrl: "https://api.github.com",
+          githubToken: "token-123"
+        },
+        [
+          {
+            label: "app-1",
+            changed: true,
+            matchedFiles: [manifestPath],
+            commitCount: 1,
+            currentVersion: "1.2.3",
+            nextVersion: "1.2.4",
+            bump: "patch",
+            commits: [],
+            changelog: { markdown: "## Bug Fixes\n- fix" },
+            versionSource: { file: manifestPath, type: "node-package-json" },
+            skipRelease: false
+          }
+        ],
+        {
+          info: () => {},
+          warn: () => {},
+          error: () => {}
+        }
+      )
+    ).rejects.toThrow(/Security validation failed for release branch/);
+
+    const pushCalls = runCommandMock.mock.calls.filter(
+      (call) => call[1]?.[0] === "push" && String(call[1]?.[2] ?? "").startsWith("+")
+    );
+    expect(pushCalls.length).toBe(0);
+    expect(createGitHubClientMock).toHaveBeenCalledTimes(1);
+  } finally {
+    mock.restore();
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});

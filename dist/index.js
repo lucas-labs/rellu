@@ -22814,6 +22814,55 @@ function writeActionOutputs(payload) {
 }
 
 //#endregion
+//#region src/release-branch-safety.ts
+const RESERVED_BRANCH_NAMES = new Set([
+	"main",
+	"master",
+	"develop",
+	"development",
+	"dev",
+	"trunk",
+	"production",
+	"prod",
+	"staging",
+	"stage"
+]);
+const INVALID_REF_PATTERN = /[\s~^:?*[\\]/u;
+const SAFE_SEGMENT_PATTERN = /^[A-Za-z0-9._-]+$/u;
+function securityError(branch, targetLabel, reason) {
+	throw new Error(`Security validation failed for release branch "${branch}" (target "${targetLabel}"): ${reason}. Use an automation-owned release namespace prefix such as "rellu/release".`);
+}
+function normalizePrefix(prefix) {
+	return prefix.trim().replace(/\/+$/u, "");
+}
+function hasReleaseNamespace(prefix) {
+	return prefix.split("/").map((segment) => segment.toLowerCase()).some((segment) => segment.startsWith("release"));
+}
+function validateAutomationOwnedReleaseBranch(options) {
+	const { branch, branchPrefix, targetLabel } = options;
+	const normalizedPrefix = normalizePrefix(branchPrefix);
+	if (!branch.trim()) securityError(branch, targetLabel, "resolved branch is empty");
+	if (!targetLabel.trim()) securityError(branch, targetLabel, "target label is empty");
+	if (!normalizedPrefix) securityError(branch, targetLabel, "release branch prefix is empty");
+	const expectedBranch = `${normalizedPrefix}/${targetLabel}`;
+	if (branch !== expectedBranch) securityError(branch, targetLabel, `resolved branch does not match expected "${expectedBranch}" from configured prefix and target label`);
+	if (!normalizedPrefix.includes("/")) securityError(branch, targetLabel, "prefix must include a namespace segment (for example \"rellu/release\")");
+	if (!hasReleaseNamespace(normalizedPrefix)) securityError(branch, targetLabel, "prefix must include a release namespace segment");
+	if (branch.startsWith("refs/")) securityError(branch, targetLabel, "branch must not include refs/* prefixes");
+	if (branch.includes("//")) securityError(branch, targetLabel, "branch must not contain empty path segments");
+	if (branch.includes("..") || branch.includes("@{")) securityError(branch, targetLabel, "branch contains prohibited git ref sequences");
+	if (INVALID_REF_PATTERN.test(branch)) securityError(branch, targetLabel, "branch contains invalid git ref characters");
+	const segments = branch.split("/");
+	for (const segment of segments) {
+		if (!segment || segment === "." || segment === "..") securityError(branch, targetLabel, "branch contains invalid path segments");
+		if (segment.endsWith(".lock")) securityError(branch, targetLabel, "branch segments cannot end with .lock");
+		if (!SAFE_SEGMENT_PATTERN.test(segment)) securityError(branch, targetLabel, "branch contains unsupported characters");
+	}
+	if (targetLabel.includes("/")) securityError(branch, targetLabel, "target label must map to a single branch segment (no slashes)");
+	if (RESERVED_BRANCH_NAMES.has(branch.toLowerCase())) securityError(branch, targetLabel, "branch resolves to a protected or default branch name");
+}
+
+//#endregion
 //#region src/release-pr.ts
 function getReleaseBranchName(prefix, label) {
 	return `${prefix.replace(/\/+$/u, "")}/${label}`;
@@ -22832,7 +22881,7 @@ async function findOpenReleasePr(githubClient, repo, branch, base, titlePrefix) 
 		perPage: 100
 	})).find((pull) => String(pull.headRef ?? "") === branch || String(pull.title ?? "").startsWith(titlePrefix)) ?? null;
 }
-async function regenerateReleaseBranch(baseBranch, branch, target, logger) {
+async function regenerateReleaseBranch(baseBranch, branch, releaseBranchPrefix, target, logger) {
 	await runCommand("git", [
 		"fetch",
 		"origin",
@@ -22871,6 +22920,11 @@ async function regenerateReleaseBranch(baseBranch, branch, target, logger) {
 		`release(${target.label}): v${target.nextVersion}`,
 		"--no-verify"
 	]);
+	validateAutomationOwnedReleaseBranch({
+		branch,
+		branchPrefix: releaseBranchPrefix,
+		targetLabel: target.label
+	});
 	await runCommand("git", [
 		"push",
 		"origin",
@@ -22881,7 +22935,7 @@ async function createOrUpdateReleasePr(githubClient, target, settings, repo, log
 	const branch = getReleaseBranchName(settings.releaseBranchPrefix, target.label);
 	const title = `release(${target.label}): v${target.nextVersion}`;
 	const body = target.changelog.markdown || "_No changelog entries._";
-	await regenerateReleaseBranch(settings.baseBranch, branch, target, logger);
+	await regenerateReleaseBranch(settings.baseBranch, branch, settings.releaseBranchPrefix, target, logger);
 	const existing = await findOpenReleasePr(githubClient, repo, branch, settings.baseBranch, `release(${target.label})`);
 	if (existing) {
 		const updated = await githubClient.updatePull(repo, existing.number, {

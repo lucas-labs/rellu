@@ -1,5 +1,6 @@
 import { createGitHubClient, parseRepoRef } from "./toolkit/github-client.js";
 import type { GitHubClient, GitHubPullRequest, GitHubRepoRef, Logger, ReleaseConfig, ReleasePrInfo, TargetResult } from "./types.js";
+import { validateAutomationOwnedReleaseBranch } from "./release-branch-safety.js";
 import { runCommand } from "./utils/exec.js";
 import { writeManifestVersion } from "./version-files.js";
 
@@ -40,6 +41,7 @@ async function findOpenReleasePr(
 async function regenerateReleaseBranch(
   baseBranch: string,
   branch: string,
+  releaseBranchPrefix: string,
   target: TargetResult,
   logger: Logger
 ): Promise<void> {
@@ -59,6 +61,11 @@ async function regenerateReleaseBranch(
 
   const commitMessage = `release(${target.label}): v${target.nextVersion}`;
   await runCommand("git", ["commit", "-m", commitMessage, "--no-verify"]);
+  validateAutomationOwnedReleaseBranch({
+    branch,
+    branchPrefix: releaseBranchPrefix,
+    targetLabel: target.label
+  });
   await runCommand("git", ["push", "origin", `+${branch}`]);
 }
 
@@ -73,7 +80,7 @@ async function createOrUpdateReleasePr(
   const title = `release(${target.label}): v${target.nextVersion}`;
   const body = target.changelog.markdown || "_No changelog entries._";
 
-  await regenerateReleaseBranch(settings.baseBranch, branch, target, logger);
+  await regenerateReleaseBranch(settings.baseBranch, branch, settings.releaseBranchPrefix, target, logger);
 
   const existing = await findOpenReleasePr(githubClient, repo, branch, settings.baseBranch, `release(${target.label})`);
 
