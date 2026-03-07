@@ -1,0 +1,20 @@
+[
+  {
+    "sha": "1111111",
+    "subject": "feat: add shared logger",
+    "body": "",
+    "authorName": "Alice",
+    "authorEmail": "alice@example.com",
+    "githubUsername": "alice",
+    "files": ["packages/shared/logger.ts"]
+  },
+  {
+    "sha": "2222222",
+    "subject": "fix(app1): repair app1 bug",
+    "body": "",
+    "authorName": "Bob",
+    "authorEmail": "bob@example.com",
+    "githubUsername": "",
+    "files": ["apps/app1/src/index.ts"]
+  }
+]

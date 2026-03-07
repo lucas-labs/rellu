@@ -1,0 +1,5 @@
+{
+  "releaseBranchPrefix": "rellu/release",
+  "label": "app-1",
+  "expectedBranch": "rellu/release/app-1"
+}

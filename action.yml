@@ -1,0 +1,62 @@
+name: "Rellu"
+description: "Monorepo release analysis action with per-target changelogs, semver, and optional release PR automation."
+author: "rellu"
+
+inputs:
+  targets:
+    description: "JSON array of target configs (label, paths, version)"
+    required: false
+  config-file:
+    description: "Optional JSON configuration file path"
+    required: false
+  from-ref:
+    description: "Start reference for git range"
+    required: false
+  to-ref:
+    description: "End reference for git range"
+    required: false
+    default: "HEAD"
+  strict-conventional-commits:
+    description: "Fail when relevant commits are not valid conventional commits"
+    required: false
+    default: "false"
+  bump-rules:
+    description: "JSON object mapping conventional commit types to bump levels"
+    required: false
+  no-bump-policy:
+    description: "Behavior for changed targets with no bump-worthy commits: skip|keep|patch"
+    required: false
+    default: "skip"
+  create-release-prs:
+    description: "Enable release branch + release PR automation"
+    required: false
+    default: "false"
+  release-branch-prefix:
+    description: "Prefix for release branches"
+    required: false
+    default: "rellu/release"
+  base-branch:
+    description: "Base branch for release PRs"
+    required: false
+    default: "main"
+  repo:
+    description: "GitHub repository slug owner/repo (defaults to GITHUB_REPOSITORY)"
+    required: false
+  github-server-url:
+    description: "GitHub API base URL"
+    required: false
+    default: "https://api.github.com"
+
+outputs:
+  changed-targets:
+    description: "JSON array of changed target labels"
+  has-changes:
+    description: "true if at least one target changed"
+  result-json:
+    description: "Full JSON analysis result"
+  release-prs-created:
+    description: "true if release PR mode created or updated at least one PR"
+
+runs:
+  using: "node20"
+  main: "dist/index.js"

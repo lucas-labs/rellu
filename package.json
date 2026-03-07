@@ -1,0 +1,16 @@
+{
+  "name": "rellu",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Rellu - monorepo release analysis GitHub Action",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "npm run build && node --test --test-isolation=none \"tests/**/*.test.mjs\"",
+    "test:ci": "npm run test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,160 @@
+# Rellu
+
+Rellu is a JavaScript GitHub Action for monorepos that:
+
+- detects changed app targets from a git range
+- parses relevant conventional commits per target
+- calculates next semantic versions per target
+- generates per-target changelog markdown
+- optionally updates one release PR per target
+
+## Required Workflow Setup
+
+Use full git history so ref resolution and commit collection are reliable:
+
+```yaml
+- uses: actions/checkout@v4
+  with:
+    fetch-depth: 0
+```
+
+## Inputs
+
+| Input | Required | Default | Description |
+| --- | --- | --- | --- |
+| `targets` | No | - | JSON array of targets (`label`, `paths`, `version`) |
+| `config-file` | No | - | Optional path to JSON config file |
+| `from-ref` | No | first commit | Start ref for analysis |
+| `to-ref` | No | `HEAD` | End ref for analysis |
+| `strict-conventional-commits` | No | `false` | Fail when relevant commits are invalid |
+| `bump-rules` | No | defaults | JSON mapping of type -> bump (`major/minor/patch/none`) |
+| `no-bump-policy` | No | `skip` | `skip`, `keep`, or `patch` |
+| `create-release-prs` | No | `false` | Enable release PR mode |
+| `release-branch-prefix` | No | `rellu/release` | Prefix used for release branches |
+| `base-branch` | No | `main` | Base branch for release PRs |
+| `repo` | No | `$GITHUB_REPOSITORY` | Explicit `owner/repo` |
+| `github-server-url` | No | `https://api.github.com` | API base URL |
+
+## Target Config Example
+
+```json
+[
+  {
+    "label": "app-1",
+    "paths": ["apps/app1/**/*", "packages/shared/**/*"],
+    "version": {
+      "file": "apps/app1/package.json",
+      "type": "node-package-json"
+    }
+  },
+  {
+    "label": "app-2",
+    "paths": ["apps/app2/**/*", "packages/shared/**/*"],
+    "version": {
+      "file": "apps/app2/Cargo.toml",
+      "type": "rust-cargo-toml"
+    }
+  }
+]
+```
+
+## Supported Version Sources
+
+- `node-package-json`: `package.json` `version`
+- `rust-cargo-toml`: `Cargo.toml` `[package] version = "x.y.z"`
+- `python-pyproject-toml`: `pyproject.toml` `[project] version` or `[tool.poetry] version`
+
+Unsupported Python layouts fail with a clear error.
+
+## Outputs
+
+| Output | Description |
+| --- | --- |
+| `changed-targets` | JSON array of changed target labels |
+| `has-changes` | `true` when at least one target changed |
+| `result-json` | Full per-target analysis JSON payload |
+| `release-prs-created` | `true` when release PR mode created/updated at least one PR |
+
+### Result JSON Shape (per target)
+
+```json
+{
+  "label": "app-1",
+  "changed": true,
+  "currentVersion": "1.2.3",
+  "nextVersion": "1.2.4",
+  "bump": "patch",
+  "matchedFiles": ["apps/app1/src/index.ts"],
+  "commits": [
+    {
+      "sha": "abc123",
+      "type": "fix",
+      "scope": "api",
+      "description": "handle null config",
+      "isBreaking": false,
+      "author": {
+        "name": "Jane Doe",
+        "username": "janedoe",
+        "display": "@janedoe"
+      }
+    }
+  ],
+  "changelog": {
+    "markdown": "## Bug Fixes\n- handle null config (thanks @janedoe) ([abc123](...))"
+  },
+  "releasePr": {
+    "enabled": true,
+    "branch": "rellu/release/app-1",
+    "title": "release(app-1): v1.2.4",
+    "number": 123,
+    "url": "https://github.com/org/repo/pull/123"
+  }
+}
+```
+
+## Example Usage
+
+```yaml
+name: Analyze Releases
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: ./
+        id: rellu
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          targets: ${{ vars.RELLU_TARGETS_JSON }}
+          from-ref: origin/main~20
+          to-ref: HEAD
+          strict-conventional-commits: "false"
+          no-bump-policy: "skip"
+          create-release-prs: "false"
+
+      - name: Print result
+        run: |
+          echo "${{ steps.rellu.outputs.result-json }}"
+```
+
+## Release PR Caveats
+
+- Release branches are automation-owned. Manual branch edits can be overwritten.
+- Release PR mode force-pushes release branches after regenerating from the latest base branch.
+- Targets skipped by `no-bump-policy: skip` do not create/update release PRs.
+
+## Local Development
+
+```bash
+npm run build
+npm test
+```
