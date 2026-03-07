@@ -1,7 +1,16 @@
 import fs from "node:fs";
 import path from "node:path";
+import { DEFAULT_CHANGELOG_CATEGORY_MAP, DEFAULT_CHANGELOG_SECTION_ORDER } from "./changelog.js";
 import { coreClient } from "./toolkit/core-client.js";
-import type { BumpLevel, NoBumpPolicy, RangeStrategy, RelluConfig, TargetConfig, VersionSource } from "./types.js";
+import type {
+  BumpLevel,
+  ChangelogConfig,
+  NoBumpPolicy,
+  RangeStrategy,
+  RelluConfig,
+  TargetConfig,
+  VersionSource
+} from "./types.js";
 import { toPosixPath, validateGlobPattern } from "./utils/paths.js";
 
 type ConfigFile = Partial<{
@@ -18,6 +27,8 @@ type ConfigFile = Partial<{
   baseBranch: unknown;
   repo: unknown;
   githubServerUrl: unknown;
+  changelogCategoryMap: unknown;
+  changelogSectionOrder: unknown;
 }>;
 
 const SUPPORTED_MANIFEST_TYPES: ReadonlySet<VersionSource["type"]> = new Set([
@@ -109,6 +120,14 @@ function parseJson(input: string): unknown {
     return JSON.parse(input);
   } catch (error) {
     throw new Error(`Invalid JSON input: ${String(error)}`);
+  }
+}
+
+function parseJsonFromSource(input: string, source: string): unknown {
+  try {
+    return JSON.parse(input);
+  } catch (error) {
+    throw new Error(`Invalid JSON for ${source}: ${String(error)}`);
   }
 }
 
@@ -209,6 +228,89 @@ function parseBumpRules(value: unknown): Record<string, BumpLevel> {
   return merged;
 }
 
+function parseChangelogCategoryMap(value: unknown, source: string): Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${source} must be a JSON object mapping commit type to section name.`);
+  }
+
+  const parsed = value as Record<string, unknown>;
+  const categoryMap: Record<string, string> = {};
+  for (const [rawType, rawSection] of Object.entries(parsed)) {
+    const type = rawType.trim().toLowerCase();
+    if (!type) {
+      throw new Error(`${source} contains an empty commit type key.`);
+    }
+    if (typeof rawSection !== "string") {
+      throw new Error(`${source}.${rawType} must be a string section name.`);
+    }
+    const section = rawSection.trim();
+    if (!section) {
+      throw new Error(`${source}.${rawType} must map to a non-empty section name.`);
+    }
+    categoryMap[type] = section;
+  }
+
+  return categoryMap;
+}
+
+function parseChangelogSectionOrder(value: unknown, source: string): string[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`${source} must be a JSON array of section names.`);
+  }
+
+  const order: string[] = [];
+  const seen = new Set<string>();
+  for (const [index, item] of value.entries()) {
+    if (typeof item !== "string") {
+      throw new Error(`${source}[${index}] must be a string section name.`);
+    }
+    const section = item.trim();
+    if (!section) {
+      throw new Error(`${source}[${index}] must be a non-empty section name.`);
+    }
+    if (seen.has(section)) {
+      throw new Error(`${source} contains duplicate section "${section}".`);
+    }
+    seen.add(section);
+    order.push(section);
+  }
+
+  return order;
+}
+
+function resolveChangelogConfig(fileConfig: ConfigFile): ChangelogConfig {
+  const rawCategoryMapInput = readInput("changelog-category-map");
+  const rawSectionOrderInput = readInput("changelog-section-order");
+
+  const categoryMapSource = rawCategoryMapInput ? 'input "changelog-category-map"' : "config-file.changelogCategoryMap";
+  const sectionOrderSource = rawSectionOrderInput
+    ? 'input "changelog-section-order"'
+    : "config-file.changelogSectionOrder";
+
+  const categoryMapValue = rawCategoryMapInput
+    ? parseJsonFromSource(rawCategoryMapInput, categoryMapSource)
+    : fileConfig.changelogCategoryMap;
+  const sectionOrderValue = rawSectionOrderInput
+    ? parseJsonFromSource(rawSectionOrderInput, sectionOrderSource)
+    : fileConfig.changelogSectionOrder;
+
+  const categoryMap = categoryMapValue
+    ? {
+        ...DEFAULT_CHANGELOG_CATEGORY_MAP,
+        ...parseChangelogCategoryMap(categoryMapValue, categoryMapSource)
+      }
+    : { ...DEFAULT_CHANGELOG_CATEGORY_MAP };
+
+  const sectionOrder = sectionOrderValue
+    ? parseChangelogSectionOrder(sectionOrderValue, sectionOrderSource)
+    : [...DEFAULT_CHANGELOG_SECTION_ORDER];
+
+  return {
+    categoryMap,
+    sectionOrder
+  };
+}
+
 function validateUniqueTargetLabels(targets: TargetConfig[]): void {
   const seen = new Set<string>();
   for (const target of targets) {
@@ -268,6 +370,7 @@ export function loadConfig(): RelluConfig {
     readInput("github-token") ||
     asOptionalString(process.env.GITHUB_TOKEN) ||
     asOptionalString(process.env.INPUT_GITHUB_TOKEN);
+  const changelog = resolveChangelogConfig(fileConfig);
 
   return {
     rangeStrategy: rangeStrategyRaw,
@@ -294,6 +397,7 @@ export function loadConfig(): RelluConfig {
     repo,
     githubServerUrl,
     githubToken,
+    changelog,
     targets
   };
 }

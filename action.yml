@@ -27,6 +27,12 @@ inputs:
   bump-rules:
     description: "JSON object mapping conventional commit types to bump levels"
     required: false
+  changelog-category-map:
+    description: "JSON object mapping conventional commit types to changelog section names"
+    required: false
+  changelog-section-order:
+    description: "JSON array defining preferred changelog section order"
+    required: false
   no-bump-policy:
     description: "Behavior for changed targets with no bump-worthy commits: skip|keep|patch"
     required: false

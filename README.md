@@ -29,6 +29,8 @@ Use full git history so ref resolution and commit collection are reliable:
 | `to-ref` | No | `HEAD` | End ref for analysis |
 | `strict-conventional-commits` | No | `false` | Fail when relevant commits are invalid |
 | `bump-rules` | No | defaults | JSON mapping of type -> bump (`major/minor/patch/none`) |
+| `changelog-category-map` | No | defaults | JSON mapping of type -> changelog section name |
+| `changelog-section-order` | No | defaults | JSON array for preferred changelog section order |
 | `no-bump-policy` | No | `skip` | `skip`, `keep`, or `patch` |
 | `create-release-prs` | No | `false` | Enable release PR mode |
 | `release-branch-prefix` | No | `rellu/release` | Prefix used for release branches |
@@ -95,6 +97,35 @@ Workflow inputs still use string values (for example `strict-conventional-commit
   "createReleasePrs": false
 }
 ```
+
+## Changelog Category Mapping
+
+You can customize changelog grouping with:
+
+- `changelog-category-map`: JSON object (`commitType -> sectionName`)
+- `changelog-section-order`: JSON array of section names
+
+Config-file equivalents:
+
+- `changelogCategoryMap`
+- `changelogSectionOrder`
+
+Example:
+
+```yaml
+with:
+  changelog-category-map: >
+    {"feat":"Enhancements","fix":"Maintenance","docs":"Guides","other":"Other"}
+  changelog-section-order: >
+    ["Maintenance","Enhancements","Guides","Other"]
+```
+
+Behavior notes:
+
+- defaults are preserved when these inputs are omitted
+- custom mapping overlays defaults for unspecified commit types
+- configured section order is applied first; remaining encountered sections are appended in sorted order
+- invalid mapping/order JSON fails fast with clear validation errors
 
 ## Range Strategy Modes
 

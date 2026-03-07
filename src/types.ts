@@ -5,6 +5,11 @@ export type BumpLevel = "major" | "minor" | "patch" | "none";
 export type NoBumpPolicy = "skip" | "keep" | "patch";
 export type RangeStrategy = "explicit" | "latest-tag" | "latest-tag-with-prefix";
 
+export interface ChangelogConfig {
+  categoryMap: Record<string, string>;
+  sectionOrder: string[];
+}
+
 export interface VersionSource {
   file: string;
   type: ManifestType;
@@ -30,6 +35,7 @@ export interface RelluConfig {
   repo: string;
   githubServerUrl: string;
   githubToken: string;
+  changelog: ChangelogConfig;
   targets: TargetConfig[];
 }
 

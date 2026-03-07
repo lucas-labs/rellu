@@ -156,7 +156,8 @@ export async function analyzeRepository(config: RelluConfig, logger: Logger): Pr
         displayAuthor: entry.author.display
       })),
       config.repo,
-      config.githubServerUrl
+      config.githubServerUrl,
+      config.changelog
     );
 
     const result: TargetResult = {

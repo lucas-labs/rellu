@@ -69,48 +69,53 @@ function applyNoBumpPolicy(input) {
 
 //#endregion
 //#region src/changelog.ts
-const DEFAULT_SECTIONS = new Map([
-	["feat", "Features"],
-	["fix", "Bug Fixes"],
-	["docs", "Documentation"],
-	["perf", "Performance"],
-	["refactor", "Refactoring"],
-	["build", "Build / CI"],
-	["ci", "Build / CI"],
-	["chore", "Chores"],
-	["test", "Tests"],
-	["style", "Other"],
-	["other", "Other"]
+const DEFAULT_CHANGELOG_CATEGORY_MAP = Object.freeze({
+	feat: "Features",
+	fix: "Bug Fixes",
+	docs: "Documentation",
+	perf: "Performance",
+	refactor: "Refactoring",
+	build: "Build / CI",
+	ci: "Build / CI",
+	chore: "Chores",
+	test: "Tests",
+	style: "Other",
+	other: "Other"
+});
+const DEFAULT_CHANGELOG_SECTION_ORDER = Object.freeze([
+	"Features",
+	"Bug Fixes",
+	"Documentation",
+	"Performance",
+	"Refactoring",
+	"Build / CI",
+	"Chores",
+	"Tests",
+	"Other"
 ]);
 function formatSha(sha, repo, githubServerUrl) {
 	const shortSha = sha.slice(0, 7);
 	if (!repo) return shortSha;
 	return `[${shortSha}](${githubServerUrl.replace(/api\.github\.com\/?$/u, "github.com").replace(/\/api\/v3\/?$/u, "")}/${repo}/commit/${sha})`;
 }
-function sectionForType(type) {
-	return DEFAULT_SECTIONS.get(type ?? "other") ?? "Other";
+function sectionForType(type, categoryMap) {
+	return categoryMap[(type ?? "other").toLowerCase()] ?? categoryMap.other ?? "Other";
 }
-function renderChangelog(commits, repo, githubServerUrl) {
+function renderChangelog(commits, repo, githubServerUrl, config) {
+	const categoryMap = config?.categoryMap ?? DEFAULT_CHANGELOG_CATEGORY_MAP;
+	const sectionOrder = config?.sectionOrder ?? [...DEFAULT_CHANGELOG_SECTION_ORDER];
 	const groups = /* @__PURE__ */ new Map();
 	for (const commit of commits) {
-		const section = sectionForType(commit.type);
+		const section = sectionForType(commit.type, categoryMap);
 		const scopedDescription = commit.scope ? `${commit.scope}: ${commit.description}` : commit.description;
 		const shaText = formatSha(commit.sha, repo, githubServerUrl);
 		const entry = `- ${scopedDescription} (thanks ${commit.displayAuthor}) (${shaText})`;
 		if (!groups.has(section)) groups.set(section, []);
 		groups.get(section)?.push(entry);
 	}
-	const orderedSections = [
-		"Features",
-		"Bug Fixes",
-		"Documentation",
-		"Performance",
-		"Refactoring",
-		"Build / CI",
-		"Chores",
-		"Tests",
-		"Other"
-	];
+	const orderedSet = new Set(sectionOrder);
+	const fallbackSections = [...groups.keys()].filter((section) => !orderedSet.has(section)).sort((a, b) => a.localeCompare(b));
+	const orderedSections = [...sectionOrder, ...fallbackSections];
 	const chunks = [];
 	for (const section of orderedSections) {
 		const entries = groups.get(section);
@@ -21805,7 +21810,7 @@ async function analyzeRepository(config, logger) {
 			scope: entry.scope,
 			type: entry.type,
 			displayAuthor: entry.author.display
-		})), config.repo, config.githubServerUrl);
+		})), config.repo, config.githubServerUrl, config.changelog);
 		const result = {
 			label: target.label,
 			changed: impact.changed,
@@ -22598,6 +22603,13 @@ function parseJson(input) {
 		throw new Error(`Invalid JSON input: ${String(error)}`);
 	}
 }
+function parseJsonFromSource(input, source) {
+	try {
+		return JSON.parse(input);
+	} catch (error) {
+		throw new Error(`Invalid JSON for ${source}: ${String(error)}`);
+	}
+}
 function asRecord(value) {
 	if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Expected an object");
 	return value;
@@ -22659,6 +22671,49 @@ function parseBumpRules(value) {
 	}
 	return merged;
 }
+function parseChangelogCategoryMap(value, source) {
+	if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${source} must be a JSON object mapping commit type to section name.`);
+	const parsed = value;
+	const categoryMap = {};
+	for (const [rawType, rawSection] of Object.entries(parsed)) {
+		const type = rawType.trim().toLowerCase();
+		if (!type) throw new Error(`${source} contains an empty commit type key.`);
+		if (typeof rawSection !== "string") throw new Error(`${source}.${rawType} must be a string section name.`);
+		const section = rawSection.trim();
+		if (!section) throw new Error(`${source}.${rawType} must map to a non-empty section name.`);
+		categoryMap[type] = section;
+	}
+	return categoryMap;
+}
+function parseChangelogSectionOrder(value, source) {
+	if (!Array.isArray(value)) throw new Error(`${source} must be a JSON array of section names.`);
+	const order = [];
+	const seen = /* @__PURE__ */ new Set();
+	for (const [index, item] of value.entries()) {
+		if (typeof item !== "string") throw new Error(`${source}[${index}] must be a string section name.`);
+		const section = item.trim();
+		if (!section) throw new Error(`${source}[${index}] must be a non-empty section name.`);
+		if (seen.has(section)) throw new Error(`${source} contains duplicate section "${section}".`);
+		seen.add(section);
+		order.push(section);
+	}
+	return order;
+}
+function resolveChangelogConfig(fileConfig) {
+	const rawCategoryMapInput = readInput("changelog-category-map");
+	const rawSectionOrderInput = readInput("changelog-section-order");
+	const categoryMapSource = rawCategoryMapInput ? "input \"changelog-category-map\"" : "config-file.changelogCategoryMap";
+	const sectionOrderSource = rawSectionOrderInput ? "input \"changelog-section-order\"" : "config-file.changelogSectionOrder";
+	const categoryMapValue = rawCategoryMapInput ? parseJsonFromSource(rawCategoryMapInput, categoryMapSource) : fileConfig.changelogCategoryMap;
+	const sectionOrderValue = rawSectionOrderInput ? parseJsonFromSource(rawSectionOrderInput, sectionOrderSource) : fileConfig.changelogSectionOrder;
+	return {
+		categoryMap: categoryMapValue ? {
+			...DEFAULT_CHANGELOG_CATEGORY_MAP,
+			...parseChangelogCategoryMap(categoryMapValue, categoryMapSource)
+		} : { ...DEFAULT_CHANGELOG_CATEGORY_MAP },
+		sectionOrder: sectionOrderValue ? parseChangelogSectionOrder(sectionOrderValue, sectionOrderSource) : [...DEFAULT_CHANGELOG_SECTION_ORDER]
+	};
+}
 function validateUniqueTargetLabels(targets) {
 	const seen = /* @__PURE__ */ new Set();
 	for (const target of targets) {
@@ -22693,6 +22748,7 @@ function loadConfig() {
 	const repo = readInput("repo") || asOptionalString(fileConfig.repo) || asOptionalString(process.env.GITHUB_REPOSITORY);
 	const githubServerUrl = readInput("github-server-url") || asOptionalString(fileConfig.githubServerUrl) || "https://api.github.com";
 	const githubToken = readInput("github-token") || asOptionalString(process.env.GITHUB_TOKEN) || asOptionalString(process.env.INPUT_GITHUB_TOKEN);
+	const changelog = resolveChangelogConfig(fileConfig);
 	return {
 		rangeStrategy: rangeStrategyRaw,
 		fromRef,
@@ -22706,6 +22762,7 @@ function loadConfig() {
 		repo,
 		githubServerUrl,
 		githubToken,
+		changelog,
 		targets
 	};
 }

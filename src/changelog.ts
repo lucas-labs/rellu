@@ -1,3 +1,5 @@
+import type { ChangelogConfig } from "./types.js";
+
 interface ChangelogCommit {
   sha: string;
   description: string;
@@ -6,18 +8,30 @@ interface ChangelogCommit {
   displayAuthor: string;
 }
 
-const DEFAULT_SECTIONS = new Map<string, string>([
-  ["feat", "Features"],
-  ["fix", "Bug Fixes"],
-  ["docs", "Documentation"],
-  ["perf", "Performance"],
-  ["refactor", "Refactoring"],
-  ["build", "Build / CI"],
-  ["ci", "Build / CI"],
-  ["chore", "Chores"],
-  ["test", "Tests"],
-  ["style", "Other"],
-  ["other", "Other"]
+export const DEFAULT_CHANGELOG_CATEGORY_MAP: Readonly<Record<string, string>> = Object.freeze({
+  feat: "Features",
+  fix: "Bug Fixes",
+  docs: "Documentation",
+  perf: "Performance",
+  refactor: "Refactoring",
+  build: "Build / CI",
+  ci: "Build / CI",
+  chore: "Chores",
+  test: "Tests",
+  style: "Other",
+  other: "Other"
+});
+
+export const DEFAULT_CHANGELOG_SECTION_ORDER: ReadonlyArray<string> = Object.freeze([
+  "Features",
+  "Bug Fixes",
+  "Documentation",
+  "Performance",
+  "Refactoring",
+  "Build / CI",
+  "Chores",
+  "Tests",
+  "Other"
 ]);
 
 function formatSha(sha: string, repo: string, githubServerUrl: string): string {
@@ -31,15 +45,23 @@ function formatSha(sha: string, repo: string, githubServerUrl: string): string {
   return `[${shortSha}](${webBase}/${repo}/commit/${sha})`;
 }
 
-function sectionForType(type: string | null): string {
-  return DEFAULT_SECTIONS.get(type ?? "other") ?? "Other";
+function sectionForType(type: string | null, categoryMap: Record<string, string>): string {
+  const key = (type ?? "other").toLowerCase();
+  return categoryMap[key] ?? categoryMap.other ?? "Other";
 }
 
-export function renderChangelog(commits: ChangelogCommit[], repo: string, githubServerUrl: string): string {
+export function renderChangelog(
+  commits: ChangelogCommit[],
+  repo: string,
+  githubServerUrl: string,
+  config?: ChangelogConfig
+): string {
+  const categoryMap = config?.categoryMap ?? (DEFAULT_CHANGELOG_CATEGORY_MAP as Record<string, string>);
+  const sectionOrder = config?.sectionOrder ?? [...DEFAULT_CHANGELOG_SECTION_ORDER];
   const groups = new Map<string, string[]>();
 
   for (const commit of commits) {
-    const section = sectionForType(commit.type);
+    const section = sectionForType(commit.type, categoryMap);
     const scopedDescription = commit.scope ? `${commit.scope}: ${commit.description}` : commit.description;
     const shaText = formatSha(commit.sha, repo, githubServerUrl);
     const entry = `- ${scopedDescription} (thanks ${commit.displayAuthor}) (${shaText})`;
@@ -49,17 +71,9 @@ export function renderChangelog(commits: ChangelogCommit[], repo: string, github
     groups.get(section)?.push(entry);
   }
 
-  const orderedSections = [
-    "Features",
-    "Bug Fixes",
-    "Documentation",
-    "Performance",
-    "Refactoring",
-    "Build / CI",
-    "Chores",
-    "Tests",
-    "Other"
-  ];
+  const orderedSet = new Set(sectionOrder);
+  const fallbackSections = [...groups.keys()].filter((section) => !orderedSet.has(section)).sort((a, b) => a.localeCompare(b));
+  const orderedSections = [...sectionOrder, ...fallbackSections];
 
   const chunks: string[] = [];
   for (const section of orderedSections) {
