@@ -44,7 +44,7 @@ function updatePackageVersion(newVersion: string): void {
   const packageJsonPath = resolve(process.cwd(), 'package.json');
   const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf-8'));
   packageJson.version = newVersion;
-  writeFileSync(packageJsonPath, JSON.stringify(packageJson, null, 4) + '\n', 'utf-8');
+  writeFileSync(packageJsonPath, JSON.stringify(packageJson, null, 2) + '\n', 'utf-8');
 }
 
 /** get the major version tag (e.g., "v1" from "1.2.3") */
@@ -151,13 +151,13 @@ async function release() {
   console.log('\n🚀 Starting release process...\n');
 
   // step 0: fail fast if there are uncommitted changes
-  // const status = execOutput('git status --porcelain');
-  // if (status) {
-  // console.error(status);
-  // console.error('\n❌ You have uncommitted changes:');
-  // console.error('Please commit or stash your changes before running the release script.');
-  // process.exit(1);
-  // }
+  const status = execOutput('git status --porcelain');
+  if (status) {
+    console.error(status);
+    console.error('\n❌ You have uncommitted changes:');
+    console.error('Please commit or stash your changes before running the release script.');
+    process.exit(1);
+  }
 
   // step 1: update tags from remote
   console.log('📥 Step 1: Fetching tags from remote...');
@@ -190,7 +190,6 @@ async function release() {
 
   try {
     parsedVersion = semver.parse(currentVersion);
-    console.log(`🔍 Parsed version:`, parsedVersion);
     if (parsedVersion.prerelease) {
       parsedVersion = semver.parse(semver.next(parsedVersion, 'release'));
     }
@@ -215,9 +214,6 @@ async function release() {
   // Generate new version
   let newVersion = undefined;
   try {
-    console.debug(
-      `Calculating new version from ${parsedVersion} with release type "${releaseType}"...`,
-    );
     newVersion = semver.next(parsedVersion, releaseType);
   } catch (error) {
     console.error('❌ Error generating new version:', error);
