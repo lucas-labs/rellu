@@ -1,0 +1,39 @@
+{
+  "ref": "refs/heads/main",
+  "before": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0",
+  "after": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "commits": [
+    {
+      "id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "message": "feat(core): add initial release analysis",
+      "timestamp": "2026-03-07T12:00:00Z",
+      "author": {
+        "name": "local-dev",
+        "email": "local-dev@example.com"
+      },
+      "modified": ["src/index.ts"]
+    }
+  ],
+  "head_commit": {
+    "id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "message": "feat(core): add initial release analysis",
+    "timestamp": "2026-03-07T12:00:00Z",
+    "author": {
+      "name": "local-dev",
+      "email": "local-dev@example.com"
+    },
+    "modified": ["src/index.ts"]
+  },
+  "repository": {
+    "full_name": "rellu/rellu",
+    "default_branch": "main",
+    "clone_url": "https://github.com/rellu/rellu.git"
+  },
+  "pusher": {
+    "name": "local-dev",
+    "email": "local-dev@example.com"
+  },
+  "sender": {
+    "login": "local-dev"
+  }
+}

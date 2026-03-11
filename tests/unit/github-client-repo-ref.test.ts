@@ -1,37 +1,47 @@
-import { expect, mock, test } from "bun:test";
+import { expect, mock, test } from 'bun:test';
 
-test("parseRepoRef accepts exact owner/name repository slug", async () => {
+test('parseRepoIdentifier accepts exact owner/name repository slug', async () => {
   try {
-    mock.module("@actions/github", () => ({
+    await mock.module('@actions/github', () => ({
       getOctokit: () => {
-        throw new Error("getOctokit should not be called in parseRepoRef tests");
-      }
+        throw new Error('getOctokit should not be called in parseRepoIdentifier tests');
+      },
     }));
 
-    const queryKey = "repo-ref-valid";
-    const { parseRepoRef } = await import(`../../src/toolkit/github-client.ts?${queryKey}`);
-    expect(parseRepoRef("acme/rellu")).toEqual({ owner: "acme", name: "rellu" });
-    expect(parseRepoRef(" acme / rellu ")).toEqual({ owner: "acme", name: "rellu" });
+    const queryKey = 'repo-ref-valid';
+    const { parseRepoIdentifier } = await import(
+      `../../src/action/github/operations/repo.ts?${queryKey}`
+    );
+    expect(parseRepoIdentifier('acme/rellu')).toEqual({
+      owner: 'acme',
+      name: 'rellu',
+    });
+    expect(parseRepoIdentifier(' acme / rellu ')).toEqual({
+      owner: 'acme',
+      name: 'rellu',
+    });
   } finally {
     mock.restore();
   }
 });
 
-test("parseRepoRef rejects malformed repository slugs", async () => {
+test('parseRepoIdentifier rejects malformed repository slugs', async () => {
   try {
-    mock.module("@actions/github", () => ({
+    await mock.module('@actions/github', () => ({
       getOctokit: () => {
-        throw new Error("getOctokit should not be called in parseRepoRef tests");
-      }
+        throw new Error('getOctokit should not be called in parseRepoIdentifier tests');
+      },
     }));
 
-    const queryKey = "repo-ref-invalid";
-    const { parseRepoRef } = await import(`../../src/toolkit/github-client.ts?${queryKey}`);
-    expect(parseRepoRef("")).toBeNull();
-    expect(parseRepoRef("acme")).toBeNull();
-    expect(parseRepoRef("/rellu")).toBeNull();
-    expect(parseRepoRef("acme/")).toBeNull();
-    expect(parseRepoRef("acme/rellu/extra")).toBeNull();
+    const queryKey = 'repo-ref-invalid';
+    const { parseRepoIdentifier } = await import(
+      `../../src/action/github/operations/repo.ts?${queryKey}`
+    );
+    expect(parseRepoIdentifier('')).toBeNull();
+    expect(parseRepoIdentifier('acme')).toBeNull();
+    expect(parseRepoIdentifier('/rellu')).toBeNull();
+    expect(parseRepoIdentifier('acme/')).toBeNull();
+    expect(parseRepoIdentifier('acme/rellu/extra')).toBeNull();
   } finally {
     mock.restore();
   }

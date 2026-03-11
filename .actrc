@@ -1,0 +1,8 @@
+# act-latest (~1.6 GB) is smaller than js-latest (~3.1 GB); good default for JS actions
+-P ubuntu-latest=catthehacker/ubuntu:act-latest
+
+# Default workflow for `act` with no args
+-W .act/workflows/test-local.yml
+
+# Override fake repo injected by act
+--env GITHUB_REPOSITORY=lucas-labs/rellu

@@ -1,0 +1,27 @@
+name: Test Local Action
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    types: [opened, synchronize, closed]
+
+jobs:
+  test-action:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Rellu
+        id: rellu
+        uses: ./
+        with:
+          config-file: .github/rellu.jsonc
+          strict-conventional-commits: "false"
+          no-bump-policy: "skip"
+
+      - name: Confirm workflow finished
+        run: |
+          echo "Workflow event: ${{ github.event_name }}"
+          echo "Workflow ref: ${{ github.ref }}"

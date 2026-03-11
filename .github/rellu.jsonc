@@ -1,0 +1,18 @@
+{
+  "$schema": "../dist/schemas/config-schema.json",
+  "targets": [
+    {
+      "label": "rellu",
+      "paths": ["src/**/*"],
+      "version": {
+        "file": "package.json",
+        "type": "node-package-json",
+      },
+      "tagPrefix": "v",
+      "releasePr": {
+        "enabled": true,
+        "branchPrefix": "rellu/release/",
+      },
+    },
+  ],
+}

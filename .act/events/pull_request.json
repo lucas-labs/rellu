@@ -1,0 +1,29 @@
+{
+  "action": "opened",
+  "number": 1,
+  "pull_request": {
+    "number": 1,
+    "title": "feat: add new feature",
+    "head": {
+      "ref": "feat/my-feature",
+      "sha": "abc1234567890000000000000000000000000000"
+    },
+    "base": {
+      "ref": "main",
+      "sha": "def1234567890000000000000000000000000000"
+    },
+    "body": "This PR adds a new feature.",
+    "user": {
+      "login": "local-dev"
+    },
+    "merged": false
+  },
+  "repository": {
+    "full_name": "lucas-labs/rellu",
+    "default_branch": "master",
+    "clone_url": "https://github.com/lucas-labs/rellu.git"
+  },
+  "sender": {
+    "login": "local-dev"
+  }
+}

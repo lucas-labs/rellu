@@ -1,18 +1,17 @@
 import { createRequire } from "node:module";
-import fs from "node:fs";
-import * as fs$2 from "fs";
-import { constants, existsSync, promises, readFileSync } from "fs";
 import * as os$1 from "os";
 import os, { EOL } from "os";
+import * as fs$2 from "fs";
+import { constants, existsSync, promises, readFileSync } from "fs";
+import * as path$1 from "path";
 import * as events from "events";
 import { ok } from "assert";
 import { StringDecoder } from "string_decoder";
 import * as child from "child_process";
-import * as path$1 from "path";
 import { setTimeout as setTimeout$1 } from "timers";
+import fs, { existsSync as existsSync$1, readFileSync as readFileSync$1 } from "node:fs";
+import path, { extname, posix, resolve, win32 } from "node:path";
 import fs$1 from "node:fs/promises";
-import path from "node:path";
-import * as crypto from "crypto";
 
 //#region \0rolldown/runtime.js
 var __create = Object.create;
@@ -43,265 +42,105 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 var __require = /* @__PURE__ */ createRequire(import.meta.url);
 
 //#endregion
-//#region src/bump-policy.ts
-function applyNoBumpPolicy(input) {
-	if (!input.changed) return {
-		bump: "none",
-		skipRelease: true
-	};
-	if (input.bumpFromCommits !== "none") return {
-		bump: input.bumpFromCommits,
-		skipRelease: false
-	};
-	if (input.noBumpPolicy === "patch") return {
-		bump: "patch",
-		skipRelease: false
-	};
-	if (input.noBumpPolicy === "keep") return {
-		bump: "none",
-		skipRelease: false
-	};
+//#region node_modules/@actions/core/lib/utils.js
+/**
+* Sanitizes an input into a string so it can be passed into issueCommand safely
+* @param input input to sanitize into a string
+*/
+function toCommandValue(input) {
+	if (input === null || input === void 0) return "";
+	else if (typeof input === "string" || input instanceof String) return input;
+	return JSON.stringify(input);
+}
+/**
+*
+* @param annotationProperties
+* @returns The command properties to send with the actual annotation command
+* See IssueCommandProperties: https://github.com/actions/runner/blob/main/src/Runner.Worker/ActionCommandManager.cs#L646
+*/
+function toCommandProperties(annotationProperties) {
+	if (!Object.keys(annotationProperties).length) return {};
 	return {
-		bump: "none",
-		skipRelease: true
+		title: annotationProperties.title,
+		file: annotationProperties.file,
+		line: annotationProperties.startLine,
+		endLine: annotationProperties.endLine,
+		col: annotationProperties.startColumn,
+		endColumn: annotationProperties.endColumn
 	};
 }
 
 //#endregion
-//#region src/utils/markdown.ts
-const MARKDOWN_ESCAPABLE_PATTERN = /([\\`*_{}\[\]()#+.!|>@])/gu;
-function escapeMarkdownText(value) {
-	return value.replace(MARKDOWN_ESCAPABLE_PATTERN, "\\$1");
+//#region node_modules/@actions/core/lib/command.js
+/**
+* Issues a command to the GitHub Actions runner
+*
+* @param command - The command name to issue
+* @param properties - Additional properties for the command (key-value pairs)
+* @param message - The message to include with the command
+* @remarks
+* This function outputs a specially formatted string to stdout that the Actions
+* runner interprets as a command. These commands can control workflow behavior,
+* set outputs, create annotations, mask values, and more.
+*
+* Command Format:
+*   ::name key=value,key=value::message
+*
+* @example
+* ```typescript
+* // Issue a warning annotation
+* issueCommand('warning', {}, 'This is a warning message');
+* // Output: ::warning::This is a warning message
+*
+* // Set an environment variable
+* issueCommand('set-env', { name: 'MY_VAR' }, 'some value');
+* // Output: ::set-env name=MY_VAR::some value
+*
+* // Add a secret mask
+* issueCommand('add-mask', {}, 'secretValue123');
+* // Output: ::add-mask::secretValue123
+* ```
+*
+* @internal
+* This is an internal utility function that powers the public API functions
+* such as setSecret, warning, error, and exportVariable.
+*/
+function issueCommand(command, properties, message) {
+	const cmd = new Command(command, properties, message);
+	process.stdout.write(cmd.toString() + os$1.EOL);
 }
-
-//#endregion
-//#region src/changelog.ts
-const DEFAULT_CHANGELOG_CATEGORY_MAP = Object.freeze({
-	feat: "Features",
-	fix: "Bug Fixes",
-	docs: "Documentation",
-	perf: "Performance",
-	refactor: "Refactoring",
-	build: "Build / CI",
-	ci: "Build / CI",
-	chore: "Chores",
-	test: "Tests",
-	style: "Other",
-	other: "Other"
-});
-const DEFAULT_CHANGELOG_SECTION_ORDER = Object.freeze([
-	"Features",
-	"Bug Fixes",
-	"Documentation",
-	"Performance",
-	"Refactoring",
-	"Build / CI",
-	"Chores",
-	"Tests",
-	"Other"
-]);
-function formatSha(sha, repo, githubServerUrl) {
-	const shortSha = sha.slice(0, 7);
-	if (!repo) return shortSha;
-	return `[${shortSha}](${githubServerUrl.replace(/api\.github\.com\/?$/u, "github.com").replace(/\/api\/v3\/?$/u, "")}/${repo}/commit/${sha})`;
-}
-function sectionForType(type, categoryMap) {
-	return categoryMap[(type ?? "other").toLowerCase()] ?? categoryMap.other ?? "Other";
-}
-function renderChangelog(commits, repo, githubServerUrl, config) {
-	const categoryMap = config?.categoryMap ?? DEFAULT_CHANGELOG_CATEGORY_MAP;
-	const sectionOrder = config?.sectionOrder ?? [...DEFAULT_CHANGELOG_SECTION_ORDER];
-	const groups = /* @__PURE__ */ new Map();
-	for (const commit of commits) {
-		const section = sectionForType(commit.type, categoryMap);
-		const escapedDescription = escapeMarkdownText(commit.description);
-		const escapedScope = commit.scope ? escapeMarkdownText(commit.scope) : null;
-		const scopedDescription = escapedScope ? `${escapedScope}: ${escapedDescription}` : escapedDescription;
-		const shaText = formatSha(commit.sha, repo, githubServerUrl);
-		const entry = `- ${scopedDescription} (thanks ${commit.displayAuthor}) (${shaText})`;
-		if (!groups.has(section)) groups.set(section, []);
-		groups.get(section)?.push(entry);
+const CMD_STRING = "::";
+var Command = class {
+	constructor(command, properties, message) {
+		if (!command) command = "missing.command";
+		this.command = command;
+		this.properties = properties;
+		this.message = message;
 	}
-	const orderedSet = new Set(sectionOrder);
-	const fallbackSections = [...groups.keys()].filter((section) => !orderedSet.has(section)).sort((a, b) => a.localeCompare(b));
-	const orderedSections = [...sectionOrder, ...fallbackSections];
-	const chunks = [];
-	for (const section of orderedSections) {
-		const entries = groups.get(section);
-		if (!entries || entries.length === 0) continue;
-		chunks.push(`## ${section}`);
-		chunks.push(...entries);
-		chunks.push("");
-	}
-	return chunks.length > 0 ? chunks.join("\n").trim() : "";
-}
-
-//#endregion
-//#region src/commits.ts
-const HEADER_REGEX = /^([a-zA-Z][\w-]*)(?:\(([^)]+)\))?(!)?:\s+(.+)$/u;
-function detectEmoji(text) {
-	const match = text.match(/\p{Extended_Pictographic}/u);
-	return match ? match[0] : "";
-}
-function parseFooters(body) {
-	const footers = {};
-	for (const line of body.split(/\r?\n/u)) {
-		const match = line.match(/^([A-Za-z-]+):\s+(.+)$/u);
-		if (!match) continue;
-		const [, key, value] = match;
-		if (key && value) footers[key] = value.trim();
-	}
-	return footers;
-}
-function parseConventionalCommit(subject, body) {
-	const trimmedSubject = subject.trim();
-	const header = trimmedSubject.match(HEADER_REGEX);
-	const footerMap = parseFooters(body);
-	const hasBreakingFooter = /(^|\n)BREAKING CHANGE:\s+/u.test(body);
-	if (!header) return {
-		type: null,
-		scope: null,
-		description: trimmedSubject,
-		emoji: detectEmoji(trimmedSubject),
-		isBreaking: hasBreakingFooter,
-		rawSubject: trimmedSubject,
-		body,
-		footers: footerMap,
-		valid: false
-	};
-	const [, type = "", scope = "", bang = "", description = ""] = header;
-	return {
-		type: type.toLowerCase(),
-		scope: scope || null,
-		description: description.trim(),
-		emoji: detectEmoji(description),
-		isBreaking: bang === "!" || hasBreakingFooter,
-		rawSubject: trimmedSubject,
-		body,
-		footers: footerMap,
-		valid: true
-	};
-}
-function normalizedCommitType(parsed) {
-	if (!parsed.valid || !parsed.type) return "other";
-	return parsed.type;
-}
-function assertConventionalCommitValidity(parsed, strict, targetLabel, sha, subject, options) {
-	if (!parsed.valid && strict && !options.isMerge) throw new Error(`Invalid conventional commit for target "${targetLabel}" in strict mode: ${sha} "${subject}"`);
-	return parsed;
-}
-function resolveBumpFromCommits(commits, bumpRules) {
-	let highest = "none";
-	for (const commit of commits) {
-		const bump = commit.isBreaking ? "major" : bumpRules[normalizedCommitType(commit)] ?? bumpRules.other ?? "none";
-		if (bump === "major") return "major";
-		if (bump === "minor") highest = "minor";
-		else if (bump === "patch" && highest === "none") highest = "patch";
-	}
-	return highest;
-}
-
-//#endregion
-//#region node_modules/@actions/github/lib/context.js
-var Context = class {
-	/**
-	* Hydrate the context from the environment
-	*/
-	constructor() {
-		var _a, _b, _c;
-		this.payload = {};
-		if (process.env.GITHUB_EVENT_PATH) if (existsSync(process.env.GITHUB_EVENT_PATH)) this.payload = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, { encoding: "utf8" }));
-		else {
-			const path = process.env.GITHUB_EVENT_PATH;
-			process.stdout.write(`GITHUB_EVENT_PATH ${path} does not exist${EOL}`);
+	toString() {
+		let cmdStr = CMD_STRING + this.command;
+		if (this.properties && Object.keys(this.properties).length > 0) {
+			cmdStr += " ";
+			let first = true;
+			for (const key in this.properties) if (this.properties.hasOwnProperty(key)) {
+				const val = this.properties[key];
+				if (val) {
+					if (first) first = false;
+					else cmdStr += ",";
+					cmdStr += `${key}=${escapeProperty(val)}`;
+				}
+			}
 		}
-		this.eventName = process.env.GITHUB_EVENT_NAME;
-		this.sha = process.env.GITHUB_SHA;
-		this.ref = process.env.GITHUB_REF;
-		this.workflow = process.env.GITHUB_WORKFLOW;
-		this.action = process.env.GITHUB_ACTION;
-		this.actor = process.env.GITHUB_ACTOR;
-		this.job = process.env.GITHUB_JOB;
-		this.runAttempt = parseInt(process.env.GITHUB_RUN_ATTEMPT, 10);
-		this.runNumber = parseInt(process.env.GITHUB_RUN_NUMBER, 10);
-		this.runId = parseInt(process.env.GITHUB_RUN_ID, 10);
-		this.apiUrl = (_a = process.env.GITHUB_API_URL) !== null && _a !== void 0 ? _a : `https://api.github.com`;
-		this.serverUrl = (_b = process.env.GITHUB_SERVER_URL) !== null && _b !== void 0 ? _b : `https://github.com`;
-		this.graphqlUrl = (_c = process.env.GITHUB_GRAPHQL_URL) !== null && _c !== void 0 ? _c : `https://api.github.com/graphql`;
-	}
-	get issue() {
-		const payload = this.payload;
-		return Object.assign(Object.assign({}, this.repo), { number: (payload.issue || payload.pull_request || payload).number });
-	}
-	get repo() {
-		if (process.env.GITHUB_REPOSITORY) {
-			const [owner, repo] = process.env.GITHUB_REPOSITORY.split("/");
-			return {
-				owner,
-				repo
-			};
-		}
-		if (this.payload.repository) return {
-			owner: this.payload.repository.owner.login,
-			repo: this.payload.repository.name
-		};
-		throw new Error("context.repo requires a GITHUB_REPOSITORY environment variable like 'owner/repo'");
+		cmdStr += `${CMD_STRING}${escapeData(this.message)}`;
+		return cmdStr;
 	}
 };
-
-//#endregion
-//#region node_modules/@actions/github/node_modules/@actions/http-client/lib/proxy.js
-var require_proxy = /* @__PURE__ */ __commonJSMin(((exports) => {
-	Object.defineProperty(exports, "__esModule", { value: true });
-	exports.getProxyUrl = getProxyUrl;
-	exports.checkBypass = checkBypass;
-	function getProxyUrl(reqUrl) {
-		const usingSsl = reqUrl.protocol === "https:";
-		if (checkBypass(reqUrl)) return;
-		const proxyVar = (() => {
-			if (usingSsl) return process.env["https_proxy"] || process.env["HTTPS_PROXY"];
-			else return process.env["http_proxy"] || process.env["HTTP_PROXY"];
-		})();
-		if (proxyVar) try {
-			return new DecodedURL(proxyVar);
-		} catch (_a) {
-			if (!proxyVar.startsWith("http://") && !proxyVar.startsWith("https://")) return new DecodedURL(`http://${proxyVar}`);
-		}
-		else return;
-	}
-	function checkBypass(reqUrl) {
-		if (!reqUrl.hostname) return false;
-		const reqHost = reqUrl.hostname;
-		if (isLoopbackAddress(reqHost)) return true;
-		const noProxy = process.env["no_proxy"] || process.env["NO_PROXY"] || "";
-		if (!noProxy) return false;
-		let reqPort;
-		if (reqUrl.port) reqPort = Number(reqUrl.port);
-		else if (reqUrl.protocol === "http:") reqPort = 80;
-		else if (reqUrl.protocol === "https:") reqPort = 443;
-		const upperReqHosts = [reqUrl.hostname.toUpperCase()];
-		if (typeof reqPort === "number") upperReqHosts.push(`${upperReqHosts[0]}:${reqPort}`);
-		for (const upperNoProxyItem of noProxy.split(",").map((x) => x.trim().toUpperCase()).filter((x) => x)) if (upperNoProxyItem === "*" || upperReqHosts.some((x) => x === upperNoProxyItem || x.endsWith(`.${upperNoProxyItem}`) || upperNoProxyItem.startsWith(".") && x.endsWith(`${upperNoProxyItem}`))) return true;
-		return false;
-	}
-	function isLoopbackAddress(host) {
-		const hostLower = host.toLowerCase();
-		return hostLower === "localhost" || hostLower.startsWith("127.") || hostLower.startsWith("[::1]") || hostLower.startsWith("[0:0:0:0:0:0:0:1]");
-	}
-	var DecodedURL = class extends URL {
-		constructor(url, base) {
-			super(url, base);
-			this._decodedUsername = decodeURIComponent(super.username);
-			this._decodedPassword = decodeURIComponent(super.password);
-		}
-		get username() {
-			return this._decodedUsername;
-		}
-		get password() {
-			return this._decodedPassword;
-		}
-	};
-}));
+function escapeData(s) {
+	return toCommandValue(s).replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A");
+}
+function escapeProperty(s) {
+	return toCommandValue(s).replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A").replace(/:/g, "%3A").replace(/,/g, "%2C");
+}
 
 //#endregion
 //#region node_modules/tunnel/lib/tunnel.js
@@ -4628,7 +4467,7 @@ var require_symbols$3 = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 //#endregion
 //#region node_modules/undici/lib/web/fetch/file.js
 var require_file = /* @__PURE__ */ __commonJSMin(((exports, module) => {
-	const { Blob: Blob$2, File } = __require("node:buffer");
+	const { Blob: Blob$2, File: File$1 } = __require("node:buffer");
 	const { kState } = require_symbols$3();
 	const { webidl } = require_webidl();
 	var FileLike = class FileLike {
@@ -4678,7 +4517,7 @@ var require_file = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	};
 	webidl.converters.Blob = webidl.interfaceConverter(Blob$2);
 	function isFileLike(object) {
-		return object instanceof File || object && (typeof object.stream === "function" || typeof object.arrayBuffer === "function") && object[Symbol.toStringTag] === "File";
+		return object instanceof File$1 || object && (typeof object.stream === "function" || typeof object.arrayBuffer === "function") && object[Symbol.toStringTag] === "File";
 	}
 	module.exports = {
 		FileLike,
@@ -12246,7 +12085,7 @@ var require_util$4 = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	const { serializeAMimeType, parseMIMEType } = require_data_url();
 	const { types: types$1 } = __require("node:util");
 	const { StringDecoder: StringDecoder$1 } = __require("string_decoder");
-	const { btoa } = __require("node:buffer");
+	const { btoa: btoa$1 } = __require("node:buffer");
 	/** @type {PropertyDescriptor} */
 	const staticPropertyDescriptors = {
 		enumerable: true,
@@ -12342,8 +12181,8 @@ var require_util$4 = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 				if (parsed !== "failure") dataURL += serializeAMimeType(parsed);
 				dataURL += ";base64,";
 				const decoder = new StringDecoder$1("latin1");
-				for (const chunk of bytes) dataURL += btoa(decoder.write(chunk));
-				dataURL += btoa(decoder.end());
+				for (const chunk of bytes) dataURL += btoa$1(decoder.write(chunk));
+				dataURL += btoa$1(decoder.end());
 				return dataURL;
 			}
 			case "Text": {
@@ -15825,6 +15664,8341 @@ var require_undici = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 }));
 
 //#endregion
+//#region node_modules/@actions/http-client/lib/index.js
+var import_tunnel = /* @__PURE__ */ __toESM(require_tunnel(), 1);
+var import_undici = require_undici();
+var __awaiter$10 = void 0 && (void 0).__awaiter || function(thisArg, _arguments, P, generator) {
+	function adopt(value) {
+		return value instanceof P ? value : new P(function(resolve) {
+			resolve(value);
+		});
+	}
+	return new (P || (P = Promise))(function(resolve, reject) {
+		function fulfilled(value) {
+			try {
+				step(generator.next(value));
+			} catch (e) {
+				reject(e);
+			}
+		}
+		function rejected(value) {
+			try {
+				step(generator["throw"](value));
+			} catch (e) {
+				reject(e);
+			}
+		}
+		function step(result) {
+			result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected);
+		}
+		step((generator = generator.apply(thisArg, _arguments || [])).next());
+	});
+};
+var HttpCodes;
+(function(HttpCodes) {
+	HttpCodes[HttpCodes["OK"] = 200] = "OK";
+	HttpCodes[HttpCodes["MultipleChoices"] = 300] = "MultipleChoices";
+	HttpCodes[HttpCodes["MovedPermanently"] = 301] = "MovedPermanently";
+	HttpCodes[HttpCodes["ResourceMoved"] = 302] = "ResourceMoved";
+	HttpCodes[HttpCodes["SeeOther"] = 303] = "SeeOther";
+	HttpCodes[HttpCodes["NotModified"] = 304] = "NotModified";
+	HttpCodes[HttpCodes["UseProxy"] = 305] = "UseProxy";
+	HttpCodes[HttpCodes["SwitchProxy"] = 306] = "SwitchProxy";
+	HttpCodes[HttpCodes["TemporaryRedirect"] = 307] = "TemporaryRedirect";
+	HttpCodes[HttpCodes["PermanentRedirect"] = 308] = "PermanentRedirect";
+	HttpCodes[HttpCodes["BadRequest"] = 400] = "BadRequest";
+	HttpCodes[HttpCodes["Unauthorized"] = 401] = "Unauthorized";
+	HttpCodes[HttpCodes["PaymentRequired"] = 402] = "PaymentRequired";
+	HttpCodes[HttpCodes["Forbidden"] = 403] = "Forbidden";
+	HttpCodes[HttpCodes["NotFound"] = 404] = "NotFound";
+	HttpCodes[HttpCodes["MethodNotAllowed"] = 405] = "MethodNotAllowed";
+	HttpCodes[HttpCodes["NotAcceptable"] = 406] = "NotAcceptable";
+	HttpCodes[HttpCodes["ProxyAuthenticationRequired"] = 407] = "ProxyAuthenticationRequired";
+	HttpCodes[HttpCodes["RequestTimeout"] = 408] = "RequestTimeout";
+	HttpCodes[HttpCodes["Conflict"] = 409] = "Conflict";
+	HttpCodes[HttpCodes["Gone"] = 410] = "Gone";
+	HttpCodes[HttpCodes["TooManyRequests"] = 429] = "TooManyRequests";
+	HttpCodes[HttpCodes["InternalServerError"] = 500] = "InternalServerError";
+	HttpCodes[HttpCodes["NotImplemented"] = 501] = "NotImplemented";
+	HttpCodes[HttpCodes["BadGateway"] = 502] = "BadGateway";
+	HttpCodes[HttpCodes["ServiceUnavailable"] = 503] = "ServiceUnavailable";
+	HttpCodes[HttpCodes["GatewayTimeout"] = 504] = "GatewayTimeout";
+})(HttpCodes || (HttpCodes = {}));
+var Headers;
+(function(Headers) {
+	Headers["Accept"] = "accept";
+	Headers["ContentType"] = "content-type";
+})(Headers || (Headers = {}));
+var MediaTypes;
+(function(MediaTypes) {
+	MediaTypes["ApplicationJson"] = "application/json";
+})(MediaTypes || (MediaTypes = {}));
+const HttpRedirectCodes = [
+	HttpCodes.MovedPermanently,
+	HttpCodes.ResourceMoved,
+	HttpCodes.SeeOther,
+	HttpCodes.TemporaryRedirect,
+	HttpCodes.PermanentRedirect
+];
+const HttpResponseRetryCodes = [
+	HttpCodes.BadGateway,
+	HttpCodes.ServiceUnavailable,
+	HttpCodes.GatewayTimeout
+];
+
+//#endregion
+//#region node_modules/@actions/http-client/lib/auth.js
+var __awaiter$9 = void 0 && (void 0).__awaiter || function(thisArg, _arguments, P, generator) {
+	function adopt(value) {
+		return value instanceof P ? value : new P(function(resolve) {
+			resolve(value);
+		});
+	}
+	return new (P || (P = Promise))(function(resolve, reject) {
+		function fulfilled(value) {
+			try {
+				step(generator.next(value));
+			} catch (e) {
+				reject(e);
+			}
+		}
+		function rejected(value) {
+			try {
+				step(generator["throw"](value));
+			} catch (e) {
+				reject(e);
+			}
+		}
+		function step(result) {
+			result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected);
+		}
+		step((generator = generator.apply(thisArg, _arguments || [])).next());
+	});
+};
+
+//#endregion
+//#region node_modules/@actions/core/lib/oidc-utils.js
+var __awaiter$8 = void 0 && (void 0).__awaiter || function(thisArg, _arguments, P, generator) {
+	function adopt(value) {
+		return value instanceof P ? value : new P(function(resolve) {
+			resolve(value);
+		});
+	}
+	return new (P || (P = Promise))(function(resolve, reject) {
+		function fulfilled(value) {
+			try {
+				step(generator.next(value));
+			} catch (e) {
+				reject(e);
+			}
+		}
+		function rejected(value) {
+			try {
+				step(generator["throw"](value));
+			} catch (e) {
+				reject(e);
+			}
+		}
+		function step(result) {
+			result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected);
+		}
+		step((generator = generator.apply(thisArg, _arguments || [])).next());
+	});
+};
+
+//#endregion
+//#region node_modules/@actions/core/lib/summary.js
+var __awaiter$7 = void 0 && (void 0).__awaiter || function(thisArg, _arguments, P, generator) {
+	function adopt(value) {
+		return value instanceof P ? value : new P(function(resolve) {
+			resolve(value);
+		});
+	}
+	return new (P || (P = Promise))(function(resolve, reject) {
+		function fulfilled(value) {
+			try {
+				step(generator.next(value));
+			} catch (e) {
+				reject(e);
+			}
+		}
+		function rejected(value) {
+			try {
+				step(generator["throw"](value));
+			} catch (e) {
+				reject(e);
+			}
+		}
+		function step(result) {
+			result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected);
+		}
+		step((generator = generator.apply(thisArg, _arguments || [])).next());
+	});
+};
+const { access, appendFile, writeFile } = promises;
+const SUMMARY_ENV_VAR = "GITHUB_STEP_SUMMARY";
+var Summary = class {
+	constructor() {
+		this._buffer = "";
+	}
+	/**
+	* Finds the summary file path from the environment, rejects if env var is not found or file does not exist
+	* Also checks r/w permissions.
+	*
+	* @returns step summary file path
+	*/
+	filePath() {
+		return __awaiter$7(this, void 0, void 0, function* () {
+			if (this._filePath) return this._filePath;
+			const pathFromEnv = process.env[SUMMARY_ENV_VAR];
+			if (!pathFromEnv) throw new Error(`Unable to find environment variable for $${SUMMARY_ENV_VAR}. Check if your runtime environment supports job summaries.`);
+			try {
+				yield access(pathFromEnv, constants.R_OK | constants.W_OK);
+			} catch (_a) {
+				throw new Error(`Unable to access summary file: '${pathFromEnv}'. Check if the file has correct read/write permissions.`);
+			}
+			this._filePath = pathFromEnv;
+			return this._filePath;
+		});
+	}
+	/**
+	* Wraps content in an HTML tag, adding any HTML attributes
+	*
+	* @param {string} tag HTML tag to wrap
+	* @param {string | null} content content within the tag
+	* @param {[attribute: string]: string} attrs key-value list of HTML attributes to add
+	*
+	* @returns {string} content wrapped in HTML element
+	*/
+	wrap(tag, content, attrs = {}) {
+		const htmlAttrs = Object.entries(attrs).map(([key, value]) => ` ${key}="${value}"`).join("");
+		if (!content) return `<${tag}${htmlAttrs}>`;
+		return `<${tag}${htmlAttrs}>${content}</${tag}>`;
+	}
+	/**
+	* Writes text in the buffer to the summary buffer file and empties buffer. Will append by default.
+	*
+	* @param {SummaryWriteOptions} [options] (optional) options for write operation
+	*
+	* @returns {Promise<Summary>} summary instance
+	*/
+	write(options) {
+		return __awaiter$7(this, void 0, void 0, function* () {
+			const overwrite = !!(options === null || options === void 0 ? void 0 : options.overwrite);
+			const filePath = yield this.filePath();
+			yield (overwrite ? writeFile : appendFile)(filePath, this._buffer, { encoding: "utf8" });
+			return this.emptyBuffer();
+		});
+	}
+	/**
+	* Clears the summary buffer and wipes the summary file
+	*
+	* @returns {Summary} summary instance
+	*/
+	clear() {
+		return __awaiter$7(this, void 0, void 0, function* () {
+			return this.emptyBuffer().write({ overwrite: true });
+		});
+	}
+	/**
+	* Returns the current summary buffer as a string
+	*
+	* @returns {string} string of summary buffer
+	*/
+	stringify() {
+		return this._buffer;
+	}
+	/**
+	* If the summary buffer is empty
+	*
+	* @returns {boolen} true if the buffer is empty
+	*/
+	isEmptyBuffer() {
+		return this._buffer.length === 0;
+	}
+	/**
+	* Resets the summary buffer without writing to summary file
+	*
+	* @returns {Summary} summary instance
+	*/
+	emptyBuffer() {
+		this._buffer = "";
+		return this;
+	}
+	/**
+	* Adds raw text to the summary buffer
+	*
+	* @param {string} text content to add
+	* @param {boolean} [addEOL=false] (optional) append an EOL to the raw text (default: false)
+	*
+	* @returns {Summary} summary instance
+	*/
+	addRaw(text, addEOL = false) {
+		this._buffer += text;
+		return addEOL ? this.addEOL() : this;
+	}
+	/**
+	* Adds the operating system-specific end-of-line marker to the buffer
+	*
+	* @returns {Summary} summary instance
+	*/
+	addEOL() {
+		return this.addRaw(EOL);
+	}
+	/**
+	* Adds an HTML codeblock to the summary buffer
+	*
+	* @param {string} code content to render within fenced code block
+	* @param {string} lang (optional) language to syntax highlight code
+	*
+	* @returns {Summary} summary instance
+	*/
+	addCodeBlock(code, lang) {
+		const attrs = Object.assign({}, lang && { lang });
+		const element = this.wrap("pre", this.wrap("code", code), attrs);
+		return this.addRaw(element).addEOL();
+	}
+	/**
+	* Adds an HTML list to the summary buffer
+	*
+	* @param {string[]} items list of items to render
+	* @param {boolean} [ordered=false] (optional) if the rendered list should be ordered or not (default: false)
+	*
+	* @returns {Summary} summary instance
+	*/
+	addList(items, ordered = false) {
+		const tag = ordered ? "ol" : "ul";
+		const listItems = items.map((item) => this.wrap("li", item)).join("");
+		const element = this.wrap(tag, listItems);
+		return this.addRaw(element).addEOL();
+	}
+	/**
+	* Adds an HTML table to the summary buffer
+	*
+	* @param {SummaryTableCell[]} rows table rows
+	*
+	* @returns {Summary} summary instance
+	*/
+	addTable(rows) {
+		const tableBody = rows.map((row) => {
+			const cells = row.map((cell) => {
+				if (typeof cell === "string") return this.wrap("td", cell);
+				const { header, data, colspan, rowspan } = cell;
+				const tag = header ? "th" : "td";
+				const attrs = Object.assign(Object.assign({}, colspan && { colspan }), rowspan && { rowspan });
+				return this.wrap(tag, data, attrs);
+			}).join("");
+			return this.wrap("tr", cells);
+		}).join("");
+		const element = this.wrap("table", tableBody);
+		return this.addRaw(element).addEOL();
+	}
+	/**
+	* Adds a collapsable HTML details element to the summary buffer
+	*
+	* @param {string} label text for the closed state
+	* @param {string} content collapsable content
+	*
+	* @returns {Summary} summary instance
+	*/
+	addDetails(label, content) {
+		const element = this.wrap("details", this.wrap("summary", label) + content);
+		return this.addRaw(element).addEOL();
+	}
+	/**
+	* Adds an HTML image tag to the summary buffer
+	*
+	* @param {string} src path to the image you to embed
+	* @param {string} alt text description of the image
+	* @param {SummaryImageOptions} options (optional) addition image attributes
+	*
+	* @returns {Summary} summary instance
+	*/
+	addImage(src, alt, options) {
+		const { width, height } = options || {};
+		const attrs = Object.assign(Object.assign({}, width && { width }), height && { height });
+		const element = this.wrap("img", null, Object.assign({
+			src,
+			alt
+		}, attrs));
+		return this.addRaw(element).addEOL();
+	}
+	/**
+	* Adds an HTML section heading element
+	*
+	* @param {string} text heading text
+	* @param {number | string} [level=1] (optional) the heading level, default: 1
+	*
+	* @returns {Summary} summary instance
+	*/
+	addHeading(text, level) {
+		const tag = `h${level}`;
+		const allowedTag = [
+			"h1",
+			"h2",
+			"h3",
+			"h4",
+			"h5",
+			"h6"
+		].includes(tag) ? tag : "h1";
+		const element = this.wrap(allowedTag, text);
+		return this.addRaw(element).addEOL();
+	}
+	/**
+	* Adds an HTML thematic break (<hr>) to the summary buffer
+	*
+	* @returns {Summary} summary instance
+	*/
+	addSeparator() {
+		const element = this.wrap("hr", null);
+		return this.addRaw(element).addEOL();
+	}
+	/**
+	* Adds an HTML line break (<br>) to the summary buffer
+	*
+	* @returns {Summary} summary instance
+	*/
+	addBreak() {
+		const element = this.wrap("br", null);
+		return this.addRaw(element).addEOL();
+	}
+	/**
+	* Adds an HTML blockquote to the summary buffer
+	*
+	* @param {string} text quote text
+	* @param {string} cite (optional) citation url
+	*
+	* @returns {Summary} summary instance
+	*/
+	addQuote(text, cite) {
+		const attrs = Object.assign({}, cite && { cite });
+		const element = this.wrap("blockquote", text, attrs);
+		return this.addRaw(element).addEOL();
+	}
+	/**
+	* Adds an HTML anchor tag to the summary buffer
+	*
+	* @param {string} text link text/content
+	* @param {string} href hyperlink
+	*
+	* @returns {Summary} summary instance
+	*/
+	addLink(text, href) {
+		const element = this.wrap("a", text, { href });
+		return this.addRaw(element).addEOL();
+	}
+};
+const _summary = new Summary();
+
+//#endregion
+//#region node_modules/@actions/io/lib/io-util.js
+var __awaiter$6 = void 0 && (void 0).__awaiter || function(thisArg, _arguments, P, generator) {
+	function adopt(value) {
+		return value instanceof P ? value : new P(function(resolve) {
+			resolve(value);
+		});
+	}
+	return new (P || (P = Promise))(function(resolve, reject) {
+		function fulfilled(value) {
+			try {
+				step(generator.next(value));
+			} catch (e) {
+				reject(e);
+			}
+		}
+		function rejected(value) {
+			try {
+				step(generator["throw"](value));
+			} catch (e) {
+				reject(e);
+			}
+		}
+		function step(result) {
+			result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected);
+		}
+		step((generator = generator.apply(thisArg, _arguments || [])).next());
+	});
+};
+const { chmod, copyFile, lstat, mkdir, open, readdir, rename, rm, rmdir, stat, symlink, unlink } = fs$2.promises;
+const IS_WINDOWS$1 = process.platform === "win32";
+const READONLY = fs$2.constants.O_RDONLY;
+function exists(fsPath) {
+	return __awaiter$6(this, void 0, void 0, function* () {
+		try {
+			yield stat(fsPath);
+		} catch (err) {
+			if (err.code === "ENOENT") return false;
+			throw err;
+		}
+		return true;
+	});
+}
+/**
+* On OSX/Linux, true if path starts with '/'. On Windows, true for paths like:
+* \, \hello, \\hello\share, C:, and C:\hello (and corresponding alternate separator cases).
+*/
+function isRooted(p) {
+	p = normalizeSeparators(p);
+	if (!p) throw new Error("isRooted() parameter \"p\" cannot be empty");
+	if (IS_WINDOWS$1) return p.startsWith("\\") || /^[A-Z]:/i.test(p);
+	return p.startsWith("/");
+}
+/**
+* Best effort attempt to determine whether a file exists and is executable.
+* @param filePath    file path to check
+* @param extensions  additional file extensions to try
+* @return if file exists and is executable, returns the file path. otherwise empty string.
+*/
+function tryGetExecutablePath(filePath, extensions) {
+	return __awaiter$6(this, void 0, void 0, function* () {
+		let stats = void 0;
+		try {
+			stats = yield stat(filePath);
+		} catch (err) {
+			if (err.code !== "ENOENT") console.log(`Unexpected error attempting to determine if executable file exists '${filePath}': ${err}`);
+		}
+		if (stats && stats.isFile()) {
+			if (IS_WINDOWS$1) {
+				const upperExt = path$1.extname(filePath).toUpperCase();
+				if (extensions.some((validExt) => validExt.toUpperCase() === upperExt)) return filePath;
+			} else if (isUnixExecutable(stats)) return filePath;
+		}
+		const originalFilePath = filePath;
+		for (const extension of extensions) {
+			filePath = originalFilePath + extension;
+			stats = void 0;
+			try {
+				stats = yield stat(filePath);
+			} catch (err) {
+				if (err.code !== "ENOENT") console.log(`Unexpected error attempting to determine if executable file exists '${filePath}': ${err}`);
+			}
+			if (stats && stats.isFile()) {
+				if (IS_WINDOWS$1) {
+					try {
+						const directory = path$1.dirname(filePath);
+						const upperName = path$1.basename(filePath).toUpperCase();
+						for (const actualName of yield readdir(directory)) if (upperName === actualName.toUpperCase()) {
+							filePath = path$1.join(directory, actualName);
+							break;
+						}
+					} catch (err) {
+						console.log(`Unexpected error attempting to determine the actual case of the file '${filePath}': ${err}`);
+					}
+					return filePath;
+				} else if (isUnixExecutable(stats)) return filePath;
+			}
+		}
+		return "";
+	});
+}
+function normalizeSeparators(p) {
+	p = p || "";
+	if (IS_WINDOWS$1) {
+		p = p.replace(/\//g, "\\");
+		return p.replace(/\\\\+/g, "\\");
+	}
+	return p.replace(/\/\/+/g, "/");
+}
+function isUnixExecutable(stats) {
+	return (stats.mode & 1) > 0 || (stats.mode & 8) > 0 && process.getgid !== void 0 && stats.gid === process.getgid() || (stats.mode & 64) > 0 && process.getuid !== void 0 && stats.uid === process.getuid();
+}
+
+//#endregion
+//#region node_modules/@actions/io/lib/io.js
+var __awaiter$5 = void 0 && (void 0).__awaiter || function(thisArg, _arguments, P, generator) {
+	function adopt(value) {
+		return value instanceof P ? value : new P(function(resolve) {
+			resolve(value);
+		});
+	}
+	return new (P || (P = Promise))(function(resolve, reject) {
+		function fulfilled(value) {
+			try {
+				step(generator.next(value));
+			} catch (e) {
+				reject(e);
+			}
+		}
+		function rejected(value) {
+			try {
+				step(generator["throw"](value));
+			} catch (e) {
+				reject(e);
+			}
+		}
+		function step(result) {
+			result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected);
+		}
+		step((generator = generator.apply(thisArg, _arguments || [])).next());
+	});
+};
+/**
+* Make a directory.  Creates the full path with folders in between
+* Will throw if it fails
+*
+* @param   fsPath        path to create
+* @returns Promise<void>
+*/
+function mkdirP(fsPath) {
+	return __awaiter$5(this, void 0, void 0, function* () {
+		ok(fsPath, "a path argument must be provided");
+		yield mkdir(fsPath, { recursive: true });
+	});
+}
+/**
+* Returns path of a tool had the tool actually been invoked.  Resolves via paths.
+* If you check and the tool does not exist, it will throw.
+*
+* @param     tool              name of the tool
+* @param     check             whether to check if tool exists
+* @returns   Promise<string>   path to tool
+*/
+function which(tool, check) {
+	return __awaiter$5(this, void 0, void 0, function* () {
+		if (!tool) throw new Error("parameter 'tool' is required");
+		if (check) {
+			const result = yield which(tool, false);
+			if (!result) if (IS_WINDOWS$1) throw new Error(`Unable to locate executable file: ${tool}. Please verify either the file path exists or the file can be found within a directory specified by the PATH environment variable. Also verify the file has a valid extension for an executable file.`);
+			else throw new Error(`Unable to locate executable file: ${tool}. Please verify either the file path exists or the file can be found within a directory specified by the PATH environment variable. Also check the file mode to verify the file is executable.`);
+			return result;
+		}
+		const matches = yield findInPath(tool);
+		if (matches && matches.length > 0) return matches[0];
+		return "";
+	});
+}
+/**
+* Returns a list of all occurrences of the given tool on the system path.
+*
+* @returns   Promise<string[]>  the paths of the tool
+*/
+function findInPath(tool) {
+	return __awaiter$5(this, void 0, void 0, function* () {
+		if (!tool) throw new Error("parameter 'tool' is required");
+		const extensions = [];
+		if (IS_WINDOWS$1 && process.env["PATHEXT"]) {
+			for (const extension of process.env["PATHEXT"].split(path$1.delimiter)) if (extension) extensions.push(extension);
+		}
+		if (isRooted(tool)) {
+			const filePath = yield tryGetExecutablePath(tool, extensions);
+			if (filePath) return [filePath];
+			return [];
+		}
+		if (tool.includes(path$1.sep)) return [];
+		const directories = [];
+		if (process.env.PATH) {
+			for (const p of process.env.PATH.split(path$1.delimiter)) if (p) directories.push(p);
+		}
+		const matches = [];
+		for (const directory of directories) {
+			const filePath = yield tryGetExecutablePath(path$1.join(directory, tool), extensions);
+			if (filePath) matches.push(filePath);
+		}
+		return matches;
+	});
+}
+
+//#endregion
+//#region node_modules/@actions/exec/lib/toolrunner.js
+var __awaiter$4 = void 0 && (void 0).__awaiter || function(thisArg, _arguments, P, generator) {
+	function adopt(value) {
+		return value instanceof P ? value : new P(function(resolve) {
+			resolve(value);
+		});
+	}
+	return new (P || (P = Promise))(function(resolve, reject) {
+		function fulfilled(value) {
+			try {
+				step(generator.next(value));
+			} catch (e) {
+				reject(e);
+			}
+		}
+		function rejected(value) {
+			try {
+				step(generator["throw"](value));
+			} catch (e) {
+				reject(e);
+			}
+		}
+		function step(result) {
+			result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected);
+		}
+		step((generator = generator.apply(thisArg, _arguments || [])).next());
+	});
+};
+const IS_WINDOWS = process.platform === "win32";
+var ToolRunner = class extends events.EventEmitter {
+	constructor(toolPath, args, options) {
+		super();
+		if (!toolPath) throw new Error("Parameter 'toolPath' cannot be null or empty.");
+		this.toolPath = toolPath;
+		this.args = args || [];
+		this.options = options || {};
+	}
+	_debug(message) {
+		if (this.options.listeners && this.options.listeners.debug) this.options.listeners.debug(message);
+	}
+	_getCommandString(options, noPrefix) {
+		const toolPath = this._getSpawnFileName();
+		const args = this._getSpawnArgs(options);
+		let cmd = noPrefix ? "" : "[command]";
+		if (IS_WINDOWS) if (this._isCmdFile()) {
+			cmd += toolPath;
+			for (const a of args) cmd += ` ${a}`;
+		} else if (options.windowsVerbatimArguments) {
+			cmd += `"${toolPath}"`;
+			for (const a of args) cmd += ` ${a}`;
+		} else {
+			cmd += this._windowsQuoteCmdArg(toolPath);
+			for (const a of args) cmd += ` ${this._windowsQuoteCmdArg(a)}`;
+		}
+		else {
+			cmd += toolPath;
+			for (const a of args) cmd += ` ${a}`;
+		}
+		return cmd;
+	}
+	_processLineBuffer(data, strBuffer, onLine) {
+		try {
+			let s = strBuffer + data.toString();
+			let n = s.indexOf(os$1.EOL);
+			while (n > -1) {
+				onLine(s.substring(0, n));
+				s = s.substring(n + os$1.EOL.length);
+				n = s.indexOf(os$1.EOL);
+			}
+			return s;
+		} catch (err) {
+			this._debug(`error processing line. Failed with error ${err}`);
+			return "";
+		}
+	}
+	_getSpawnFileName() {
+		if (IS_WINDOWS) {
+			if (this._isCmdFile()) return process.env["COMSPEC"] || "cmd.exe";
+		}
+		return this.toolPath;
+	}
+	_getSpawnArgs(options) {
+		if (IS_WINDOWS) {
+			if (this._isCmdFile()) {
+				let argline = `/D /S /C "${this._windowsQuoteCmdArg(this.toolPath)}`;
+				for (const a of this.args) {
+					argline += " ";
+					argline += options.windowsVerbatimArguments ? a : this._windowsQuoteCmdArg(a);
+				}
+				argline += "\"";
+				return [argline];
+			}
+		}
+		return this.args;
+	}
+	_endsWith(str, end) {
+		return str.endsWith(end);
+	}
+	_isCmdFile() {
+		const upperToolPath = this.toolPath.toUpperCase();
+		return this._endsWith(upperToolPath, ".CMD") || this._endsWith(upperToolPath, ".BAT");
+	}
+	_windowsQuoteCmdArg(arg) {
+		if (!this._isCmdFile()) return this._uvQuoteCmdArg(arg);
+		if (!arg) return "\"\"";
+		const cmdSpecialChars = [
+			" ",
+			"	",
+			"&",
+			"(",
+			")",
+			"[",
+			"]",
+			"{",
+			"}",
+			"^",
+			"=",
+			";",
+			"!",
+			"'",
+			"+",
+			",",
+			"`",
+			"~",
+			"|",
+			"<",
+			">",
+			"\""
+		];
+		let needsQuotes = false;
+		for (const char of arg) if (cmdSpecialChars.some((x) => x === char)) {
+			needsQuotes = true;
+			break;
+		}
+		if (!needsQuotes) return arg;
+		let reverse = "\"";
+		let quoteHit = true;
+		for (let i = arg.length; i > 0; i--) {
+			reverse += arg[i - 1];
+			if (quoteHit && arg[i - 1] === "\\") reverse += "\\";
+			else if (arg[i - 1] === "\"") {
+				quoteHit = true;
+				reverse += "\"";
+			} else quoteHit = false;
+		}
+		reverse += "\"";
+		return reverse.split("").reverse().join("");
+	}
+	_uvQuoteCmdArg(arg) {
+		if (!arg) return "\"\"";
+		if (!arg.includes(" ") && !arg.includes("	") && !arg.includes("\"")) return arg;
+		if (!arg.includes("\"") && !arg.includes("\\")) return `"${arg}"`;
+		let reverse = "\"";
+		let quoteHit = true;
+		for (let i = arg.length; i > 0; i--) {
+			reverse += arg[i - 1];
+			if (quoteHit && arg[i - 1] === "\\") reverse += "\\";
+			else if (arg[i - 1] === "\"") {
+				quoteHit = true;
+				reverse += "\\";
+			} else quoteHit = false;
+		}
+		reverse += "\"";
+		return reverse.split("").reverse().join("");
+	}
+	_cloneExecOptions(options) {
+		options = options || {};
+		const result = {
+			cwd: options.cwd || process.cwd(),
+			env: options.env || process.env,
+			silent: options.silent || false,
+			windowsVerbatimArguments: options.windowsVerbatimArguments || false,
+			failOnStdErr: options.failOnStdErr || false,
+			ignoreReturnCode: options.ignoreReturnCode || false,
+			delay: options.delay || 1e4
+		};
+		result.outStream = options.outStream || process.stdout;
+		result.errStream = options.errStream || process.stderr;
+		return result;
+	}
+	_getSpawnOptions(options, toolPath) {
+		options = options || {};
+		const result = {};
+		result.cwd = options.cwd;
+		result.env = options.env;
+		result["windowsVerbatimArguments"] = options.windowsVerbatimArguments || this._isCmdFile();
+		if (options.windowsVerbatimArguments) result.argv0 = `"${toolPath}"`;
+		return result;
+	}
+	/**
+	* Exec a tool.
+	* Output will be streamed to the live console.
+	* Returns promise with return code
+	*
+	* @param     tool     path to tool to exec
+	* @param     options  optional exec options.  See ExecOptions
+	* @returns   number
+	*/
+	exec() {
+		return __awaiter$4(this, void 0, void 0, function* () {
+			if (!isRooted(this.toolPath) && (this.toolPath.includes("/") || IS_WINDOWS && this.toolPath.includes("\\"))) this.toolPath = path$1.resolve(process.cwd(), this.options.cwd || process.cwd(), this.toolPath);
+			this.toolPath = yield which(this.toolPath, true);
+			return new Promise((resolve, reject) => __awaiter$4(this, void 0, void 0, function* () {
+				this._debug(`exec tool: ${this.toolPath}`);
+				this._debug("arguments:");
+				for (const arg of this.args) this._debug(`   ${arg}`);
+				const optionsNonNull = this._cloneExecOptions(this.options);
+				if (!optionsNonNull.silent && optionsNonNull.outStream) optionsNonNull.outStream.write(this._getCommandString(optionsNonNull) + os$1.EOL);
+				const state = new ExecState(optionsNonNull, this.toolPath);
+				state.on("debug", (message) => {
+					this._debug(message);
+				});
+				if (this.options.cwd && !(yield exists(this.options.cwd))) return reject(/* @__PURE__ */ new Error(`The cwd: ${this.options.cwd} does not exist!`));
+				const fileName = this._getSpawnFileName();
+				const cp = child.spawn(fileName, this._getSpawnArgs(optionsNonNull), this._getSpawnOptions(this.options, fileName));
+				let stdbuffer = "";
+				if (cp.stdout) cp.stdout.on("data", (data) => {
+					if (this.options.listeners && this.options.listeners.stdout) this.options.listeners.stdout(data);
+					if (!optionsNonNull.silent && optionsNonNull.outStream) optionsNonNull.outStream.write(data);
+					stdbuffer = this._processLineBuffer(data, stdbuffer, (line) => {
+						if (this.options.listeners && this.options.listeners.stdline) this.options.listeners.stdline(line);
+					});
+				});
+				let errbuffer = "";
+				if (cp.stderr) cp.stderr.on("data", (data) => {
+					state.processStderr = true;
+					if (this.options.listeners && this.options.listeners.stderr) this.options.listeners.stderr(data);
+					if (!optionsNonNull.silent && optionsNonNull.errStream && optionsNonNull.outStream) (optionsNonNull.failOnStdErr ? optionsNonNull.errStream : optionsNonNull.outStream).write(data);
+					errbuffer = this._processLineBuffer(data, errbuffer, (line) => {
+						if (this.options.listeners && this.options.listeners.errline) this.options.listeners.errline(line);
+					});
+				});
+				cp.on("error", (err) => {
+					state.processError = err.message;
+					state.processExited = true;
+					state.processClosed = true;
+					state.CheckComplete();
+				});
+				cp.on("exit", (code) => {
+					state.processExitCode = code;
+					state.processExited = true;
+					this._debug(`Exit code ${code} received from tool '${this.toolPath}'`);
+					state.CheckComplete();
+				});
+				cp.on("close", (code) => {
+					state.processExitCode = code;
+					state.processExited = true;
+					state.processClosed = true;
+					this._debug(`STDIO streams have closed for tool '${this.toolPath}'`);
+					state.CheckComplete();
+				});
+				state.on("done", (error, exitCode) => {
+					if (stdbuffer.length > 0) this.emit("stdline", stdbuffer);
+					if (errbuffer.length > 0) this.emit("errline", errbuffer);
+					cp.removeAllListeners();
+					if (error) reject(error);
+					else resolve(exitCode);
+				});
+				if (this.options.input) {
+					if (!cp.stdin) throw new Error("child process missing stdin");
+					cp.stdin.end(this.options.input);
+				}
+			}));
+		});
+	}
+};
+/**
+* Convert an arg string to an array of args. Handles escaping
+*
+* @param    argString   string of arguments
+* @returns  string[]    array of arguments
+*/
+function argStringToArray(argString) {
+	const args = [];
+	let inQuotes = false;
+	let escaped = false;
+	let arg = "";
+	function append(c) {
+		if (escaped && c !== "\"") arg += "\\";
+		arg += c;
+		escaped = false;
+	}
+	for (let i = 0; i < argString.length; i++) {
+		const c = argString.charAt(i);
+		if (c === "\"") {
+			if (!escaped) inQuotes = !inQuotes;
+			else append(c);
+			continue;
+		}
+		if (c === "\\" && escaped) {
+			append(c);
+			continue;
+		}
+		if (c === "\\" && inQuotes) {
+			escaped = true;
+			continue;
+		}
+		if (c === " " && !inQuotes) {
+			if (arg.length > 0) {
+				args.push(arg);
+				arg = "";
+			}
+			continue;
+		}
+		append(c);
+	}
+	if (arg.length > 0) args.push(arg.trim());
+	return args;
+}
+var ExecState = class ExecState extends events.EventEmitter {
+	constructor(options, toolPath) {
+		super();
+		this.processClosed = false;
+		this.processError = "";
+		this.processExitCode = 0;
+		this.processExited = false;
+		this.processStderr = false;
+		this.delay = 1e4;
+		this.done = false;
+		this.timeout = null;
+		if (!toolPath) throw new Error("toolPath must not be empty");
+		this.options = options;
+		this.toolPath = toolPath;
+		if (options.delay) this.delay = options.delay;
+	}
+	CheckComplete() {
+		if (this.done) return;
+		if (this.processClosed) this._setResult();
+		else if (this.processExited) this.timeout = setTimeout$1(ExecState.HandleTimeout, this.delay, this);
+	}
+	_debug(message) {
+		this.emit("debug", message);
+	}
+	_setResult() {
+		let error;
+		if (this.processExited) {
+			if (this.processError) error = /* @__PURE__ */ new Error(`There was an error when attempting to execute the process '${this.toolPath}'. This may indicate the process failed to start. Error: ${this.processError}`);
+			else if (this.processExitCode !== 0 && !this.options.ignoreReturnCode) error = /* @__PURE__ */ new Error(`The process '${this.toolPath}' failed with exit code ${this.processExitCode}`);
+			else if (this.processStderr && this.options.failOnStdErr) error = /* @__PURE__ */ new Error(`The process '${this.toolPath}' failed because one or more lines were written to the STDERR stream`);
+		}
+		if (this.timeout) {
+			clearTimeout(this.timeout);
+			this.timeout = null;
+		}
+		this.done = true;
+		this.emit("done", error, this.processExitCode);
+	}
+	static HandleTimeout(state) {
+		if (state.done) return;
+		if (!state.processClosed && state.processExited) {
+			const message = `The STDIO streams did not close within ${state.delay / 1e3} seconds of the exit event from process '${state.toolPath}'. This may indicate a child process inherited the STDIO streams and has not yet exited.`;
+			state._debug(message);
+		}
+		state._setResult();
+	}
+};
+
+//#endregion
+//#region node_modules/@actions/exec/lib/exec.js
+var __awaiter$3 = void 0 && (void 0).__awaiter || function(thisArg, _arguments, P, generator) {
+	function adopt(value) {
+		return value instanceof P ? value : new P(function(resolve) {
+			resolve(value);
+		});
+	}
+	return new (P || (P = Promise))(function(resolve, reject) {
+		function fulfilled(value) {
+			try {
+				step(generator.next(value));
+			} catch (e) {
+				reject(e);
+			}
+		}
+		function rejected(value) {
+			try {
+				step(generator["throw"](value));
+			} catch (e) {
+				reject(e);
+			}
+		}
+		function step(result) {
+			result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected);
+		}
+		step((generator = generator.apply(thisArg, _arguments || [])).next());
+	});
+};
+/**
+* Exec a command.
+* Output will be streamed to the live console.
+* Returns promise with return code
+*
+* @param     commandLine        command to execute (can include additional args). Must be correctly escaped.
+* @param     args               optional arguments for tool. Escaping is handled by the lib.
+* @param     options            optional exec options.  See ExecOptions
+* @returns   Promise<number>    exit code
+*/
+function exec$1(commandLine, args, options) {
+	return __awaiter$3(this, void 0, void 0, function* () {
+		const commandArgs = argStringToArray(commandLine);
+		if (commandArgs.length === 0) throw new Error(`Parameter 'commandLine' cannot be null or empty.`);
+		const toolPath = commandArgs[0];
+		args = commandArgs.slice(1).concat(args || []);
+		return new ToolRunner(toolPath, args, options).exec();
+	});
+}
+/**
+* Exec a command and get the output.
+* Output will be streamed to the live console.
+* Returns promise with the exit code and collected stdout and stderr
+*
+* @param     commandLine           command to execute (can include additional args). Must be correctly escaped.
+* @param     args                  optional arguments for tool. Escaping is handled by the lib.
+* @param     options               optional exec options.  See ExecOptions
+* @returns   Promise<ExecOutput>   exit code, stdout, and stderr
+*/
+function getExecOutput(commandLine, args, options) {
+	return __awaiter$3(this, void 0, void 0, function* () {
+		var _a, _b;
+		let stdout = "";
+		let stderr = "";
+		const stdoutDecoder = new StringDecoder("utf8");
+		const stderrDecoder = new StringDecoder("utf8");
+		const originalStdoutListener = (_a = options === null || options === void 0 ? void 0 : options.listeners) === null || _a === void 0 ? void 0 : _a.stdout;
+		const originalStdErrListener = (_b = options === null || options === void 0 ? void 0 : options.listeners) === null || _b === void 0 ? void 0 : _b.stderr;
+		const stdErrListener = (data) => {
+			stderr += stderrDecoder.write(data);
+			if (originalStdErrListener) originalStdErrListener(data);
+		};
+		const stdOutListener = (data) => {
+			stdout += stdoutDecoder.write(data);
+			if (originalStdoutListener) originalStdoutListener(data);
+		};
+		const listeners = Object.assign(Object.assign({}, options === null || options === void 0 ? void 0 : options.listeners), {
+			stdout: stdOutListener,
+			stderr: stdErrListener
+		});
+		const exitCode = yield exec$1(commandLine, args, Object.assign(Object.assign({}, options), { listeners }));
+		stdout += stdoutDecoder.end();
+		stderr += stderrDecoder.end();
+		return {
+			exitCode,
+			stdout,
+			stderr
+		};
+	});
+}
+
+//#endregion
+//#region node_modules/@actions/core/lib/platform.js
+var __awaiter$2 = void 0 && (void 0).__awaiter || function(thisArg, _arguments, P, generator) {
+	function adopt(value) {
+		return value instanceof P ? value : new P(function(resolve) {
+			resolve(value);
+		});
+	}
+	return new (P || (P = Promise))(function(resolve, reject) {
+		function fulfilled(value) {
+			try {
+				step(generator.next(value));
+			} catch (e) {
+				reject(e);
+			}
+		}
+		function rejected(value) {
+			try {
+				step(generator["throw"](value));
+			} catch (e) {
+				reject(e);
+			}
+		}
+		function step(result) {
+			result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected);
+		}
+		step((generator = generator.apply(thisArg, _arguments || [])).next());
+	});
+};
+const platform = os.platform();
+const arch = os.arch();
+
+//#endregion
+//#region node_modules/@actions/core/lib/core.js
+var __awaiter$1 = void 0 && (void 0).__awaiter || function(thisArg, _arguments, P, generator) {
+	function adopt(value) {
+		return value instanceof P ? value : new P(function(resolve) {
+			resolve(value);
+		});
+	}
+	return new (P || (P = Promise))(function(resolve, reject) {
+		function fulfilled(value) {
+			try {
+				step(generator.next(value));
+			} catch (e) {
+				reject(e);
+			}
+		}
+		function rejected(value) {
+			try {
+				step(generator["throw"](value));
+			} catch (e) {
+				reject(e);
+			}
+		}
+		function step(result) {
+			result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected);
+		}
+		step((generator = generator.apply(thisArg, _arguments || [])).next());
+	});
+};
+/**
+* The code to exit an action
+*/
+var ExitCode;
+(function(ExitCode) {
+	/**
+	* A code indicating that the action was successful
+	*/
+	ExitCode[ExitCode["Success"] = 0] = "Success";
+	/**
+	* A code indicating that the action was a failure
+	*/
+	ExitCode[ExitCode["Failure"] = 1] = "Failure";
+})(ExitCode || (ExitCode = {}));
+/**
+* Gets the value of an input.
+* Unless trimWhitespace is set to false in InputOptions, the value is also trimmed.
+* Returns an empty string if the value is not defined.
+*
+* @param     name     name of the input to get
+* @param     options  optional. See InputOptions.
+* @returns   string
+*/
+function getInput$1(name, options) {
+	const val = process.env[`INPUT_${name.replace(/ /g, "_").toUpperCase()}`] || "";
+	if (options && options.required && !val) throw new Error(`Input required and not supplied: ${name}`);
+	if (options && options.trimWhitespace === false) return val;
+	return val.trim();
+}
+/**
+* Sets the action status to failed.
+* When the action exits it will be with an exit code of 1
+* @param message add error issue message
+*/
+function setFailed(message) {
+	process.exitCode = ExitCode.Failure;
+	error(message);
+}
+/**
+* Writes debug message to user log
+* @param message debug message
+*/
+function debug(message) {
+	issueCommand("debug", {}, message);
+}
+/**
+* Adds an error issue
+* @param message error issue message. Errors will be converted to string via toString()
+* @param properties optional properties to add to the annotation.
+*/
+function error(message, properties = {}) {
+	issueCommand("error", toCommandProperties(properties), message instanceof Error ? message.toString() : message);
+}
+/**
+* Adds a warning issue
+* @param message warning issue message. Errors will be converted to string via toString()
+* @param properties optional properties to add to the annotation.
+*/
+function warning(message, properties = {}) {
+	issueCommand("warning", toCommandProperties(properties), message instanceof Error ? message.toString() : message);
+}
+/**
+* Writes info to log with console.log.
+* @param message info message
+*/
+function info(message) {
+	process.stdout.write(message + os$1.EOL);
+}
+
+//#endregion
+//#region src/utils/logger.ts
+/** converts all arguments to a single string message */
+const getMessage = (message, ...args) => {
+	if (args.length === 0) return message;
+	return `${message} ${args.map((arg) => {
+		if (typeof arg === "object") try {
+			return JSON.stringify(arg, null, 2);
+		} catch {
+			return String(arg);
+		}
+		return String(arg);
+	}).join(" ")}`;
+};
+const log = {
+	info(message, ...args) {
+		info(getMessage(message, ...args));
+	},
+	warn(message, ...args) {
+		warning(getMessage(message, ...args));
+	},
+	err(message, ...args) {
+		error(getMessage(message, ...args));
+	},
+	dbg(message, ...args) {
+		debug(getMessage(message, ...args));
+	}
+};
+
+//#endregion
+//#region node_modules/jsonc-parser/lib/esm/impl/scanner.js
+/**
+* Creates a JSON scanner on the given text.
+* If ignoreTrivia is set, whitespaces or comments are ignored.
+*/
+function createScanner$1(text, ignoreTrivia = false) {
+	const len = text.length;
+	let pos = 0, value = "", tokenOffset = 0, token = 16, lineNumber = 0, lineStartOffset = 0, tokenLineStartOffset = 0, prevTokenLineStartOffset = 0, scanError = 0;
+	function scanHexDigits(count, exact) {
+		let digits = 0;
+		let value = 0;
+		while (digits < count || !exact) {
+			let ch = text.charCodeAt(pos);
+			if (ch >= 48 && ch <= 57) value = value * 16 + ch - 48;
+			else if (ch >= 65 && ch <= 70) value = value * 16 + ch - 65 + 10;
+			else if (ch >= 97 && ch <= 102) value = value * 16 + ch - 97 + 10;
+			else break;
+			pos++;
+			digits++;
+		}
+		if (digits < count) value = -1;
+		return value;
+	}
+	function setPosition(newPosition) {
+		pos = newPosition;
+		value = "";
+		tokenOffset = 0;
+		token = 16;
+		scanError = 0;
+	}
+	function scanNumber() {
+		let start = pos;
+		if (text.charCodeAt(pos) === 48) pos++;
+		else {
+			pos++;
+			while (pos < text.length && isDigit(text.charCodeAt(pos))) pos++;
+		}
+		if (pos < text.length && text.charCodeAt(pos) === 46) {
+			pos++;
+			if (pos < text.length && isDigit(text.charCodeAt(pos))) {
+				pos++;
+				while (pos < text.length && isDigit(text.charCodeAt(pos))) pos++;
+			} else {
+				scanError = 3;
+				return text.substring(start, pos);
+			}
+		}
+		let end = pos;
+		if (pos < text.length && (text.charCodeAt(pos) === 69 || text.charCodeAt(pos) === 101)) {
+			pos++;
+			if (pos < text.length && text.charCodeAt(pos) === 43 || text.charCodeAt(pos) === 45) pos++;
+			if (pos < text.length && isDigit(text.charCodeAt(pos))) {
+				pos++;
+				while (pos < text.length && isDigit(text.charCodeAt(pos))) pos++;
+				end = pos;
+			} else scanError = 3;
+		}
+		return text.substring(start, end);
+	}
+	function scanString() {
+		let result = "", start = pos;
+		while (true) {
+			if (pos >= len) {
+				result += text.substring(start, pos);
+				scanError = 2;
+				break;
+			}
+			const ch = text.charCodeAt(pos);
+			if (ch === 34) {
+				result += text.substring(start, pos);
+				pos++;
+				break;
+			}
+			if (ch === 92) {
+				result += text.substring(start, pos);
+				pos++;
+				if (pos >= len) {
+					scanError = 2;
+					break;
+				}
+				switch (text.charCodeAt(pos++)) {
+					case 34:
+						result += "\"";
+						break;
+					case 92:
+						result += "\\";
+						break;
+					case 47:
+						result += "/";
+						break;
+					case 98:
+						result += "\b";
+						break;
+					case 102:
+						result += "\f";
+						break;
+					case 110:
+						result += "\n";
+						break;
+					case 114:
+						result += "\r";
+						break;
+					case 116:
+						result += "	";
+						break;
+					case 117:
+						const ch3 = scanHexDigits(4, true);
+						if (ch3 >= 0) result += String.fromCharCode(ch3);
+						else scanError = 4;
+						break;
+					default: scanError = 5;
+				}
+				start = pos;
+				continue;
+			}
+			if (ch >= 0 && ch <= 31) if (isLineBreak(ch)) {
+				result += text.substring(start, pos);
+				scanError = 2;
+				break;
+			} else scanError = 6;
+			pos++;
+		}
+		return result;
+	}
+	function scanNext() {
+		value = "";
+		scanError = 0;
+		tokenOffset = pos;
+		lineStartOffset = lineNumber;
+		prevTokenLineStartOffset = tokenLineStartOffset;
+		if (pos >= len) {
+			tokenOffset = len;
+			return token = 17;
+		}
+		let code = text.charCodeAt(pos);
+		if (isWhiteSpace(code)) {
+			do {
+				pos++;
+				value += String.fromCharCode(code);
+				code = text.charCodeAt(pos);
+			} while (isWhiteSpace(code));
+			return token = 15;
+		}
+		if (isLineBreak(code)) {
+			pos++;
+			value += String.fromCharCode(code);
+			if (code === 13 && text.charCodeAt(pos) === 10) {
+				pos++;
+				value += "\n";
+			}
+			lineNumber++;
+			tokenLineStartOffset = pos;
+			return token = 14;
+		}
+		switch (code) {
+			case 123:
+				pos++;
+				return token = 1;
+			case 125:
+				pos++;
+				return token = 2;
+			case 91:
+				pos++;
+				return token = 3;
+			case 93:
+				pos++;
+				return token = 4;
+			case 58:
+				pos++;
+				return token = 6;
+			case 44:
+				pos++;
+				return token = 5;
+			case 34:
+				pos++;
+				value = scanString();
+				return token = 10;
+			case 47:
+				const start = pos - 1;
+				if (text.charCodeAt(pos + 1) === 47) {
+					pos += 2;
+					while (pos < len) {
+						if (isLineBreak(text.charCodeAt(pos))) break;
+						pos++;
+					}
+					value = text.substring(start, pos);
+					return token = 12;
+				}
+				if (text.charCodeAt(pos + 1) === 42) {
+					pos += 2;
+					const safeLength = len - 1;
+					let commentClosed = false;
+					while (pos < safeLength) {
+						const ch = text.charCodeAt(pos);
+						if (ch === 42 && text.charCodeAt(pos + 1) === 47) {
+							pos += 2;
+							commentClosed = true;
+							break;
+						}
+						pos++;
+						if (isLineBreak(ch)) {
+							if (ch === 13 && text.charCodeAt(pos) === 10) pos++;
+							lineNumber++;
+							tokenLineStartOffset = pos;
+						}
+					}
+					if (!commentClosed) {
+						pos++;
+						scanError = 1;
+					}
+					value = text.substring(start, pos);
+					return token = 13;
+				}
+				value += String.fromCharCode(code);
+				pos++;
+				return token = 16;
+			case 45:
+				value += String.fromCharCode(code);
+				pos++;
+				if (pos === len || !isDigit(text.charCodeAt(pos))) return token = 16;
+			case 48:
+			case 49:
+			case 50:
+			case 51:
+			case 52:
+			case 53:
+			case 54:
+			case 55:
+			case 56:
+			case 57:
+				value += scanNumber();
+				return token = 11;
+			default:
+				while (pos < len && isUnknownContentCharacter(code)) {
+					pos++;
+					code = text.charCodeAt(pos);
+				}
+				if (tokenOffset !== pos) {
+					value = text.substring(tokenOffset, pos);
+					switch (value) {
+						case "true": return token = 8;
+						case "false": return token = 9;
+						case "null": return token = 7;
+					}
+					return token = 16;
+				}
+				value += String.fromCharCode(code);
+				pos++;
+				return token = 16;
+		}
+	}
+	function isUnknownContentCharacter(code) {
+		if (isWhiteSpace(code) || isLineBreak(code)) return false;
+		switch (code) {
+			case 125:
+			case 93:
+			case 123:
+			case 91:
+			case 34:
+			case 58:
+			case 44:
+			case 47: return false;
+		}
+		return true;
+	}
+	function scanNextNonTrivia() {
+		let result;
+		do
+			result = scanNext();
+		while (result >= 12 && result <= 15);
+		return result;
+	}
+	return {
+		setPosition,
+		getPosition: () => pos,
+		scan: ignoreTrivia ? scanNextNonTrivia : scanNext,
+		getToken: () => token,
+		getTokenValue: () => value,
+		getTokenOffset: () => tokenOffset,
+		getTokenLength: () => pos - tokenOffset,
+		getTokenStartLine: () => lineStartOffset,
+		getTokenStartCharacter: () => tokenOffset - prevTokenLineStartOffset,
+		getTokenError: () => scanError
+	};
+}
+function isWhiteSpace(ch) {
+	return ch === 32 || ch === 9;
+}
+function isLineBreak(ch) {
+	return ch === 10 || ch === 13;
+}
+function isDigit(ch) {
+	return ch >= 48 && ch <= 57;
+}
+var CharacterCodes;
+(function(CharacterCodes) {
+	CharacterCodes[CharacterCodes["lineFeed"] = 10] = "lineFeed";
+	CharacterCodes[CharacterCodes["carriageReturn"] = 13] = "carriageReturn";
+	CharacterCodes[CharacterCodes["space"] = 32] = "space";
+	CharacterCodes[CharacterCodes["_0"] = 48] = "_0";
+	CharacterCodes[CharacterCodes["_1"] = 49] = "_1";
+	CharacterCodes[CharacterCodes["_2"] = 50] = "_2";
+	CharacterCodes[CharacterCodes["_3"] = 51] = "_3";
+	CharacterCodes[CharacterCodes["_4"] = 52] = "_4";
+	CharacterCodes[CharacterCodes["_5"] = 53] = "_5";
+	CharacterCodes[CharacterCodes["_6"] = 54] = "_6";
+	CharacterCodes[CharacterCodes["_7"] = 55] = "_7";
+	CharacterCodes[CharacterCodes["_8"] = 56] = "_8";
+	CharacterCodes[CharacterCodes["_9"] = 57] = "_9";
+	CharacterCodes[CharacterCodes["a"] = 97] = "a";
+	CharacterCodes[CharacterCodes["b"] = 98] = "b";
+	CharacterCodes[CharacterCodes["c"] = 99] = "c";
+	CharacterCodes[CharacterCodes["d"] = 100] = "d";
+	CharacterCodes[CharacterCodes["e"] = 101] = "e";
+	CharacterCodes[CharacterCodes["f"] = 102] = "f";
+	CharacterCodes[CharacterCodes["g"] = 103] = "g";
+	CharacterCodes[CharacterCodes["h"] = 104] = "h";
+	CharacterCodes[CharacterCodes["i"] = 105] = "i";
+	CharacterCodes[CharacterCodes["j"] = 106] = "j";
+	CharacterCodes[CharacterCodes["k"] = 107] = "k";
+	CharacterCodes[CharacterCodes["l"] = 108] = "l";
+	CharacterCodes[CharacterCodes["m"] = 109] = "m";
+	CharacterCodes[CharacterCodes["n"] = 110] = "n";
+	CharacterCodes[CharacterCodes["o"] = 111] = "o";
+	CharacterCodes[CharacterCodes["p"] = 112] = "p";
+	CharacterCodes[CharacterCodes["q"] = 113] = "q";
+	CharacterCodes[CharacterCodes["r"] = 114] = "r";
+	CharacterCodes[CharacterCodes["s"] = 115] = "s";
+	CharacterCodes[CharacterCodes["t"] = 116] = "t";
+	CharacterCodes[CharacterCodes["u"] = 117] = "u";
+	CharacterCodes[CharacterCodes["v"] = 118] = "v";
+	CharacterCodes[CharacterCodes["w"] = 119] = "w";
+	CharacterCodes[CharacterCodes["x"] = 120] = "x";
+	CharacterCodes[CharacterCodes["y"] = 121] = "y";
+	CharacterCodes[CharacterCodes["z"] = 122] = "z";
+	CharacterCodes[CharacterCodes["A"] = 65] = "A";
+	CharacterCodes[CharacterCodes["B"] = 66] = "B";
+	CharacterCodes[CharacterCodes["C"] = 67] = "C";
+	CharacterCodes[CharacterCodes["D"] = 68] = "D";
+	CharacterCodes[CharacterCodes["E"] = 69] = "E";
+	CharacterCodes[CharacterCodes["F"] = 70] = "F";
+	CharacterCodes[CharacterCodes["G"] = 71] = "G";
+	CharacterCodes[CharacterCodes["H"] = 72] = "H";
+	CharacterCodes[CharacterCodes["I"] = 73] = "I";
+	CharacterCodes[CharacterCodes["J"] = 74] = "J";
+	CharacterCodes[CharacterCodes["K"] = 75] = "K";
+	CharacterCodes[CharacterCodes["L"] = 76] = "L";
+	CharacterCodes[CharacterCodes["M"] = 77] = "M";
+	CharacterCodes[CharacterCodes["N"] = 78] = "N";
+	CharacterCodes[CharacterCodes["O"] = 79] = "O";
+	CharacterCodes[CharacterCodes["P"] = 80] = "P";
+	CharacterCodes[CharacterCodes["Q"] = 81] = "Q";
+	CharacterCodes[CharacterCodes["R"] = 82] = "R";
+	CharacterCodes[CharacterCodes["S"] = 83] = "S";
+	CharacterCodes[CharacterCodes["T"] = 84] = "T";
+	CharacterCodes[CharacterCodes["U"] = 85] = "U";
+	CharacterCodes[CharacterCodes["V"] = 86] = "V";
+	CharacterCodes[CharacterCodes["W"] = 87] = "W";
+	CharacterCodes[CharacterCodes["X"] = 88] = "X";
+	CharacterCodes[CharacterCodes["Y"] = 89] = "Y";
+	CharacterCodes[CharacterCodes["Z"] = 90] = "Z";
+	CharacterCodes[CharacterCodes["asterisk"] = 42] = "asterisk";
+	CharacterCodes[CharacterCodes["backslash"] = 92] = "backslash";
+	CharacterCodes[CharacterCodes["closeBrace"] = 125] = "closeBrace";
+	CharacterCodes[CharacterCodes["closeBracket"] = 93] = "closeBracket";
+	CharacterCodes[CharacterCodes["colon"] = 58] = "colon";
+	CharacterCodes[CharacterCodes["comma"] = 44] = "comma";
+	CharacterCodes[CharacterCodes["dot"] = 46] = "dot";
+	CharacterCodes[CharacterCodes["doubleQuote"] = 34] = "doubleQuote";
+	CharacterCodes[CharacterCodes["minus"] = 45] = "minus";
+	CharacterCodes[CharacterCodes["openBrace"] = 123] = "openBrace";
+	CharacterCodes[CharacterCodes["openBracket"] = 91] = "openBracket";
+	CharacterCodes[CharacterCodes["plus"] = 43] = "plus";
+	CharacterCodes[CharacterCodes["slash"] = 47] = "slash";
+	CharacterCodes[CharacterCodes["formFeed"] = 12] = "formFeed";
+	CharacterCodes[CharacterCodes["tab"] = 9] = "tab";
+})(CharacterCodes || (CharacterCodes = {}));
+
+//#endregion
+//#region node_modules/jsonc-parser/lib/esm/impl/string-intern.js
+const cachedSpaces = new Array(20).fill(0).map((_, index) => {
+	return " ".repeat(index);
+});
+const maxCachedValues = 200;
+const cachedBreakLinesWithSpaces = {
+	" ": {
+		"\n": new Array(maxCachedValues).fill(0).map((_, index) => {
+			return "\n" + " ".repeat(index);
+		}),
+		"\r": new Array(maxCachedValues).fill(0).map((_, index) => {
+			return "\r" + " ".repeat(index);
+		}),
+		"\r\n": new Array(maxCachedValues).fill(0).map((_, index) => {
+			return "\r\n" + " ".repeat(index);
+		})
+	},
+	"	": {
+		"\n": new Array(maxCachedValues).fill(0).map((_, index) => {
+			return "\n" + "	".repeat(index);
+		}),
+		"\r": new Array(maxCachedValues).fill(0).map((_, index) => {
+			return "\r" + "	".repeat(index);
+		}),
+		"\r\n": new Array(maxCachedValues).fill(0).map((_, index) => {
+			return "\r\n" + "	".repeat(index);
+		})
+	}
+};
+
+//#endregion
+//#region node_modules/jsonc-parser/lib/esm/impl/parser.js
+var ParseOptions;
+(function(ParseOptions) {
+	ParseOptions.DEFAULT = { allowTrailingComma: false };
+})(ParseOptions || (ParseOptions = {}));
+/**
+* For a given offset, evaluate the location in the JSON document. Each segment in the location path is either a property name or an array index.
+*/
+function getLocation$1(text, position) {
+	const segments = [];
+	const earlyReturnException = /* @__PURE__ */ new Object();
+	let previousNode = void 0;
+	const previousNodeInst = {
+		value: {},
+		offset: 0,
+		length: 0,
+		type: "object",
+		parent: void 0
+	};
+	let isAtPropertyKey = false;
+	function setPreviousNode(value, offset, length, type) {
+		previousNodeInst.value = value;
+		previousNodeInst.offset = offset;
+		previousNodeInst.length = length;
+		previousNodeInst.type = type;
+		previousNodeInst.colonOffset = void 0;
+		previousNode = previousNodeInst;
+	}
+	try {
+		visit$1(text, {
+			onObjectBegin: (offset, length) => {
+				if (position <= offset) throw earlyReturnException;
+				previousNode = void 0;
+				isAtPropertyKey = position > offset;
+				segments.push("");
+			},
+			onObjectProperty: (name, offset, length) => {
+				if (position < offset) throw earlyReturnException;
+				setPreviousNode(name, offset, length, "property");
+				segments[segments.length - 1] = name;
+				if (position <= offset + length) throw earlyReturnException;
+			},
+			onObjectEnd: (offset, length) => {
+				if (position <= offset) throw earlyReturnException;
+				previousNode = void 0;
+				segments.pop();
+			},
+			onArrayBegin: (offset, length) => {
+				if (position <= offset) throw earlyReturnException;
+				previousNode = void 0;
+				segments.push(0);
+			},
+			onArrayEnd: (offset, length) => {
+				if (position <= offset) throw earlyReturnException;
+				previousNode = void 0;
+				segments.pop();
+			},
+			onLiteralValue: (value, offset, length) => {
+				if (position < offset) throw earlyReturnException;
+				setPreviousNode(value, offset, length, getNodeType(value));
+				if (position <= offset + length) throw earlyReturnException;
+			},
+			onSeparator: (sep, offset, length) => {
+				if (position <= offset) throw earlyReturnException;
+				if (sep === ":" && previousNode && previousNode.type === "property") {
+					previousNode.colonOffset = offset;
+					isAtPropertyKey = false;
+					previousNode = void 0;
+				} else if (sep === ",") {
+					const last = segments[segments.length - 1];
+					if (typeof last === "number") segments[segments.length - 1] = last + 1;
+					else {
+						isAtPropertyKey = true;
+						segments[segments.length - 1] = "";
+					}
+					previousNode = void 0;
+				}
+			}
+		});
+	} catch (e) {
+		if (e !== earlyReturnException) throw e;
+	}
+	return {
+		path: segments,
+		previousNode,
+		isAtPropertyKey,
+		matches: (pattern) => {
+			let k = 0;
+			for (let i = 0; k < pattern.length && i < segments.length; i++) if (pattern[k] === segments[i] || pattern[k] === "*") k++;
+			else if (pattern[k] !== "**") return false;
+			return k === pattern.length;
+		}
+	};
+}
+/**
+* Parses the given text and returns the object the JSON content represents. On invalid input, the parser tries to be as fault tolerant as possible, but still return a result.
+* Therefore always check the errors list to find out if the input was valid.
+*/
+function parse$5(text, errors = [], options = ParseOptions.DEFAULT) {
+	let currentProperty = null;
+	let currentParent = [];
+	const previousParents = [];
+	function onValue(value) {
+		if (Array.isArray(currentParent)) currentParent.push(value);
+		else if (currentProperty !== null) currentParent[currentProperty] = value;
+	}
+	visit$1(text, {
+		onObjectBegin: () => {
+			const object = {};
+			onValue(object);
+			previousParents.push(currentParent);
+			currentParent = object;
+			currentProperty = null;
+		},
+		onObjectProperty: (name) => {
+			currentProperty = name;
+		},
+		onObjectEnd: () => {
+			currentParent = previousParents.pop();
+		},
+		onArrayBegin: () => {
+			const array = [];
+			onValue(array);
+			previousParents.push(currentParent);
+			currentParent = array;
+			currentProperty = null;
+		},
+		onArrayEnd: () => {
+			currentParent = previousParents.pop();
+		},
+		onLiteralValue: onValue,
+		onError: (error, offset, length) => {
+			errors.push({
+				error,
+				offset,
+				length
+			});
+		}
+	}, options);
+	return currentParent[0];
+}
+/**
+* Parses the given text and returns a tree representation the JSON content. On invalid input, the parser tries to be as fault tolerant as possible, but still return a result.
+*/
+function parseTree$1(text, errors = [], options = ParseOptions.DEFAULT) {
+	let currentParent = {
+		type: "array",
+		offset: -1,
+		length: -1,
+		children: [],
+		parent: void 0
+	};
+	function ensurePropertyComplete(endOffset) {
+		if (currentParent.type === "property") {
+			currentParent.length = endOffset - currentParent.offset;
+			currentParent = currentParent.parent;
+		}
+	}
+	function onValue(valueNode) {
+		currentParent.children.push(valueNode);
+		return valueNode;
+	}
+	visit$1(text, {
+		onObjectBegin: (offset) => {
+			currentParent = onValue({
+				type: "object",
+				offset,
+				length: -1,
+				parent: currentParent,
+				children: []
+			});
+		},
+		onObjectProperty: (name, offset, length) => {
+			currentParent = onValue({
+				type: "property",
+				offset,
+				length: -1,
+				parent: currentParent,
+				children: []
+			});
+			currentParent.children.push({
+				type: "string",
+				value: name,
+				offset,
+				length,
+				parent: currentParent
+			});
+		},
+		onObjectEnd: (offset, length) => {
+			ensurePropertyComplete(offset + length);
+			currentParent.length = offset + length - currentParent.offset;
+			currentParent = currentParent.parent;
+			ensurePropertyComplete(offset + length);
+		},
+		onArrayBegin: (offset, length) => {
+			currentParent = onValue({
+				type: "array",
+				offset,
+				length: -1,
+				parent: currentParent,
+				children: []
+			});
+		},
+		onArrayEnd: (offset, length) => {
+			currentParent.length = offset + length - currentParent.offset;
+			currentParent = currentParent.parent;
+			ensurePropertyComplete(offset + length);
+		},
+		onLiteralValue: (value, offset, length) => {
+			onValue({
+				type: getNodeType(value),
+				offset,
+				length,
+				parent: currentParent,
+				value
+			});
+			ensurePropertyComplete(offset + length);
+		},
+		onSeparator: (sep, offset, length) => {
+			if (currentParent.type === "property") {
+				if (sep === ":") currentParent.colonOffset = offset;
+				else if (sep === ",") ensurePropertyComplete(offset);
+			}
+		},
+		onError: (error, offset, length) => {
+			errors.push({
+				error,
+				offset,
+				length
+			});
+		}
+	}, options);
+	const result = currentParent.children[0];
+	if (result) delete result.parent;
+	return result;
+}
+/**
+* Finds the node at the given path in a JSON DOM.
+*/
+function findNodeAtLocation$1(root, path) {
+	if (!root) return;
+	let node = root;
+	for (let segment of path) if (typeof segment === "string") {
+		if (node.type !== "object" || !Array.isArray(node.children)) return;
+		let found = false;
+		for (const propertyNode of node.children) if (Array.isArray(propertyNode.children) && propertyNode.children[0].value === segment && propertyNode.children.length === 2) {
+			node = propertyNode.children[1];
+			found = true;
+			break;
+		}
+		if (!found) return;
+	} else {
+		const index = segment;
+		if (node.type !== "array" || index < 0 || !Array.isArray(node.children) || index >= node.children.length) return;
+		node = node.children[index];
+	}
+	return node;
+}
+/**
+* Gets the JSON path of the given JSON DOM node
+*/
+function getNodePath$1(node) {
+	if (!node.parent || !node.parent.children) return [];
+	const path = getNodePath$1(node.parent);
+	if (node.parent.type === "property") {
+		const key = node.parent.children[0].value;
+		path.push(key);
+	} else if (node.parent.type === "array") {
+		const index = node.parent.children.indexOf(node);
+		if (index !== -1) path.push(index);
+	}
+	return path;
+}
+/**
+* Evaluates the JavaScript object of the given JSON DOM node
+*/
+function getNodeValue$1(node) {
+	switch (node.type) {
+		case "array": return node.children.map(getNodeValue$1);
+		case "object":
+			const obj = Object.create(null);
+			for (let prop of node.children) {
+				const valueNode = prop.children[1];
+				if (valueNode) obj[prop.children[0].value] = getNodeValue$1(valueNode);
+			}
+			return obj;
+		case "null":
+		case "string":
+		case "number":
+		case "boolean": return node.value;
+		default: return;
+	}
+}
+function contains(node, offset, includeRightBound = false) {
+	return offset >= node.offset && offset < node.offset + node.length || includeRightBound && offset === node.offset + node.length;
+}
+/**
+* Finds the most inner node at the given offset. If includeRightBound is set, also finds nodes that end at the given offset.
+*/
+function findNodeAtOffset$1(node, offset, includeRightBound = false) {
+	if (contains(node, offset, includeRightBound)) {
+		const children = node.children;
+		if (Array.isArray(children)) for (let i = 0; i < children.length && children[i].offset <= offset; i++) {
+			const item = findNodeAtOffset$1(children[i], offset, includeRightBound);
+			if (item) return item;
+		}
+		return node;
+	}
+}
+/**
+* Parses the given text and invokes the visitor functions for each object, array and literal reached.
+*/
+function visit$1(text, visitor, options = ParseOptions.DEFAULT) {
+	const _scanner = createScanner$1(text, false);
+	const _jsonPath = [];
+	let suppressedCallbacks = 0;
+	function toNoArgVisit(visitFunction) {
+		return visitFunction ? () => suppressedCallbacks === 0 && visitFunction(_scanner.getTokenOffset(), _scanner.getTokenLength(), _scanner.getTokenStartLine(), _scanner.getTokenStartCharacter()) : () => true;
+	}
+	function toOneArgVisit(visitFunction) {
+		return visitFunction ? (arg) => suppressedCallbacks === 0 && visitFunction(arg, _scanner.getTokenOffset(), _scanner.getTokenLength(), _scanner.getTokenStartLine(), _scanner.getTokenStartCharacter()) : () => true;
+	}
+	function toOneArgVisitWithPath(visitFunction) {
+		return visitFunction ? (arg) => suppressedCallbacks === 0 && visitFunction(arg, _scanner.getTokenOffset(), _scanner.getTokenLength(), _scanner.getTokenStartLine(), _scanner.getTokenStartCharacter(), () => _jsonPath.slice()) : () => true;
+	}
+	function toBeginVisit(visitFunction) {
+		return visitFunction ? () => {
+			if (suppressedCallbacks > 0) suppressedCallbacks++;
+			else if (visitFunction(_scanner.getTokenOffset(), _scanner.getTokenLength(), _scanner.getTokenStartLine(), _scanner.getTokenStartCharacter(), () => _jsonPath.slice()) === false) suppressedCallbacks = 1;
+		} : () => true;
+	}
+	function toEndVisit(visitFunction) {
+		return visitFunction ? () => {
+			if (suppressedCallbacks > 0) suppressedCallbacks--;
+			if (suppressedCallbacks === 0) visitFunction(_scanner.getTokenOffset(), _scanner.getTokenLength(), _scanner.getTokenStartLine(), _scanner.getTokenStartCharacter());
+		} : () => true;
+	}
+	const onObjectBegin = toBeginVisit(visitor.onObjectBegin), onObjectProperty = toOneArgVisitWithPath(visitor.onObjectProperty), onObjectEnd = toEndVisit(visitor.onObjectEnd), onArrayBegin = toBeginVisit(visitor.onArrayBegin), onArrayEnd = toEndVisit(visitor.onArrayEnd), onLiteralValue = toOneArgVisitWithPath(visitor.onLiteralValue), onSeparator = toOneArgVisit(visitor.onSeparator), onComment = toNoArgVisit(visitor.onComment), onError = toOneArgVisit(visitor.onError);
+	const disallowComments = options && options.disallowComments;
+	const allowTrailingComma = options && options.allowTrailingComma;
+	function scanNext() {
+		while (true) {
+			const token = _scanner.scan();
+			switch (_scanner.getTokenError()) {
+				case 4:
+					handleError(14);
+					break;
+				case 5:
+					handleError(15);
+					break;
+				case 3:
+					handleError(13);
+					break;
+				case 1:
+					if (!disallowComments) handleError(11);
+					break;
+				case 2:
+					handleError(12);
+					break;
+				case 6:
+					handleError(16);
+					break;
+			}
+			switch (token) {
+				case 12:
+				case 13:
+					if (disallowComments) handleError(10);
+					else onComment();
+					break;
+				case 16:
+					handleError(1);
+					break;
+				case 15:
+				case 14: break;
+				default: return token;
+			}
+		}
+	}
+	function handleError(error, skipUntilAfter = [], skipUntil = []) {
+		onError(error);
+		if (skipUntilAfter.length + skipUntil.length > 0) {
+			let token = _scanner.getToken();
+			while (token !== 17) {
+				if (skipUntilAfter.indexOf(token) !== -1) {
+					scanNext();
+					break;
+				} else if (skipUntil.indexOf(token) !== -1) break;
+				token = scanNext();
+			}
+		}
+	}
+	function parseString(isValue) {
+		const value = _scanner.getTokenValue();
+		if (isValue) onLiteralValue(value);
+		else {
+			onObjectProperty(value);
+			_jsonPath.push(value);
+		}
+		scanNext();
+		return true;
+	}
+	function parseLiteral() {
+		switch (_scanner.getToken()) {
+			case 11:
+				const tokenValue = _scanner.getTokenValue();
+				let value = Number(tokenValue);
+				if (isNaN(value)) {
+					handleError(2);
+					value = 0;
+				}
+				onLiteralValue(value);
+				break;
+			case 7:
+				onLiteralValue(null);
+				break;
+			case 8:
+				onLiteralValue(true);
+				break;
+			case 9:
+				onLiteralValue(false);
+				break;
+			default: return false;
+		}
+		scanNext();
+		return true;
+	}
+	function parseProperty() {
+		if (_scanner.getToken() !== 10) {
+			handleError(3, [], [2, 5]);
+			return false;
+		}
+		parseString(false);
+		if (_scanner.getToken() === 6) {
+			onSeparator(":");
+			scanNext();
+			if (!parseValue()) handleError(4, [], [2, 5]);
+		} else handleError(5, [], [2, 5]);
+		_jsonPath.pop();
+		return true;
+	}
+	function parseObject() {
+		onObjectBegin();
+		scanNext();
+		let needsComma = false;
+		while (_scanner.getToken() !== 2 && _scanner.getToken() !== 17) {
+			if (_scanner.getToken() === 5) {
+				if (!needsComma) handleError(4, [], []);
+				onSeparator(",");
+				scanNext();
+				if (_scanner.getToken() === 2 && allowTrailingComma) break;
+			} else if (needsComma) handleError(6, [], []);
+			if (!parseProperty()) handleError(4, [], [2, 5]);
+			needsComma = true;
+		}
+		onObjectEnd();
+		if (_scanner.getToken() !== 2) handleError(7, [2], []);
+		else scanNext();
+		return true;
+	}
+	function parseArray() {
+		onArrayBegin();
+		scanNext();
+		let isFirstElement = true;
+		let needsComma = false;
+		while (_scanner.getToken() !== 4 && _scanner.getToken() !== 17) {
+			if (_scanner.getToken() === 5) {
+				if (!needsComma) handleError(4, [], []);
+				onSeparator(",");
+				scanNext();
+				if (_scanner.getToken() === 4 && allowTrailingComma) break;
+			} else if (needsComma) handleError(6, [], []);
+			if (isFirstElement) {
+				_jsonPath.push(0);
+				isFirstElement = false;
+			} else _jsonPath[_jsonPath.length - 1]++;
+			if (!parseValue()) handleError(4, [], [4, 5]);
+			needsComma = true;
+		}
+		onArrayEnd();
+		if (!isFirstElement) _jsonPath.pop();
+		if (_scanner.getToken() !== 4) handleError(8, [4], []);
+		else scanNext();
+		return true;
+	}
+	function parseValue() {
+		switch (_scanner.getToken()) {
+			case 3: return parseArray();
+			case 1: return parseObject();
+			case 10: return parseString(true);
+			default: return parseLiteral();
+		}
+	}
+	scanNext();
+	if (_scanner.getToken() === 17) {
+		if (options.allowEmptyContent) return true;
+		handleError(4, [], []);
+		return false;
+	}
+	if (!parseValue()) {
+		handleError(4, [], []);
+		return false;
+	}
+	if (_scanner.getToken() !== 17) handleError(9, [], []);
+	return true;
+}
+/**
+* Takes JSON with JavaScript-style comments and remove
+* them. Optionally replaces every none-newline character
+* of comments with a replaceCharacter
+*/
+function stripComments$1(text, replaceCh) {
+	let _scanner = createScanner$1(text), parts = [], kind, offset = 0, pos;
+	do {
+		pos = _scanner.getPosition();
+		kind = _scanner.scan();
+		switch (kind) {
+			case 12:
+			case 13:
+			case 17:
+				if (offset !== pos) parts.push(text.substring(offset, pos));
+				if (replaceCh !== void 0) parts.push(_scanner.getTokenValue().replace(/[^\r\n]/g, replaceCh));
+				offset = _scanner.getPosition();
+				break;
+		}
+	} while (kind !== 17);
+	return parts.join("");
+}
+function getNodeType(value) {
+	switch (typeof value) {
+		case "boolean": return "boolean";
+		case "number": return "number";
+		case "string": return "string";
+		case "object":
+			if (!value) return "null";
+			else if (Array.isArray(value)) return "array";
+			return "object";
+		default: return "null";
+	}
+}
+
+//#endregion
+//#region node_modules/jsonc-parser/lib/esm/main.js
+/**
+* Creates a JSON scanner on the given text.
+* If ignoreTrivia is set, whitespaces or comments are ignored.
+*/
+const createScanner = createScanner$1;
+var ScanError;
+(function(ScanError) {
+	ScanError[ScanError["None"] = 0] = "None";
+	ScanError[ScanError["UnexpectedEndOfComment"] = 1] = "UnexpectedEndOfComment";
+	ScanError[ScanError["UnexpectedEndOfString"] = 2] = "UnexpectedEndOfString";
+	ScanError[ScanError["UnexpectedEndOfNumber"] = 3] = "UnexpectedEndOfNumber";
+	ScanError[ScanError["InvalidUnicode"] = 4] = "InvalidUnicode";
+	ScanError[ScanError["InvalidEscapeCharacter"] = 5] = "InvalidEscapeCharacter";
+	ScanError[ScanError["InvalidCharacter"] = 6] = "InvalidCharacter";
+})(ScanError || (ScanError = {}));
+var SyntaxKind;
+(function(SyntaxKind) {
+	SyntaxKind[SyntaxKind["OpenBraceToken"] = 1] = "OpenBraceToken";
+	SyntaxKind[SyntaxKind["CloseBraceToken"] = 2] = "CloseBraceToken";
+	SyntaxKind[SyntaxKind["OpenBracketToken"] = 3] = "OpenBracketToken";
+	SyntaxKind[SyntaxKind["CloseBracketToken"] = 4] = "CloseBracketToken";
+	SyntaxKind[SyntaxKind["CommaToken"] = 5] = "CommaToken";
+	SyntaxKind[SyntaxKind["ColonToken"] = 6] = "ColonToken";
+	SyntaxKind[SyntaxKind["NullKeyword"] = 7] = "NullKeyword";
+	SyntaxKind[SyntaxKind["TrueKeyword"] = 8] = "TrueKeyword";
+	SyntaxKind[SyntaxKind["FalseKeyword"] = 9] = "FalseKeyword";
+	SyntaxKind[SyntaxKind["StringLiteral"] = 10] = "StringLiteral";
+	SyntaxKind[SyntaxKind["NumericLiteral"] = 11] = "NumericLiteral";
+	SyntaxKind[SyntaxKind["LineCommentTrivia"] = 12] = "LineCommentTrivia";
+	SyntaxKind[SyntaxKind["BlockCommentTrivia"] = 13] = "BlockCommentTrivia";
+	SyntaxKind[SyntaxKind["LineBreakTrivia"] = 14] = "LineBreakTrivia";
+	SyntaxKind[SyntaxKind["Trivia"] = 15] = "Trivia";
+	SyntaxKind[SyntaxKind["Unknown"] = 16] = "Unknown";
+	SyntaxKind[SyntaxKind["EOF"] = 17] = "EOF";
+})(SyntaxKind || (SyntaxKind = {}));
+/**
+* For a given offset, evaluate the location in the JSON document. Each segment in the location path is either a property name or an array index.
+*/
+const getLocation = getLocation$1;
+/**
+* Parses the given text and returns the object the JSON content represents. On invalid input, the parser tries to be as fault tolerant as possible, but still return a result.
+* Therefore, always check the errors list to find out if the input was valid.
+*/
+const parse$4 = parse$5;
+/**
+* Parses the given text and returns a tree representation the JSON content. On invalid input, the parser tries to be as fault tolerant as possible, but still return a result.
+*/
+const parseTree = parseTree$1;
+/**
+* Finds the node at the given path in a JSON DOM.
+*/
+const findNodeAtLocation = findNodeAtLocation$1;
+/**
+* Finds the innermost node at the given offset. If includeRightBound is set, also finds nodes that end at the given offset.
+*/
+const findNodeAtOffset = findNodeAtOffset$1;
+/**
+* Gets the JSON path of the given JSON DOM node
+*/
+const getNodePath = getNodePath$1;
+/**
+* Evaluates the JavaScript object of the given JSON DOM node
+*/
+const getNodeValue = getNodeValue$1;
+/**
+* Parses the given text and invokes the visitor functions for each object, array and literal reached.
+*/
+const visit = visit$1;
+/**
+* Takes JSON with JavaScript-style comments and remove
+* them. Optionally replaces every none-newline character
+* of comments with a replaceCharacter
+*/
+const stripComments = stripComments$1;
+var ParseErrorCode;
+(function(ParseErrorCode) {
+	ParseErrorCode[ParseErrorCode["InvalidSymbol"] = 1] = "InvalidSymbol";
+	ParseErrorCode[ParseErrorCode["InvalidNumberFormat"] = 2] = "InvalidNumberFormat";
+	ParseErrorCode[ParseErrorCode["PropertyNameExpected"] = 3] = "PropertyNameExpected";
+	ParseErrorCode[ParseErrorCode["ValueExpected"] = 4] = "ValueExpected";
+	ParseErrorCode[ParseErrorCode["ColonExpected"] = 5] = "ColonExpected";
+	ParseErrorCode[ParseErrorCode["CommaExpected"] = 6] = "CommaExpected";
+	ParseErrorCode[ParseErrorCode["CloseBraceExpected"] = 7] = "CloseBraceExpected";
+	ParseErrorCode[ParseErrorCode["CloseBracketExpected"] = 8] = "CloseBracketExpected";
+	ParseErrorCode[ParseErrorCode["EndOfFileExpected"] = 9] = "EndOfFileExpected";
+	ParseErrorCode[ParseErrorCode["InvalidCommentToken"] = 10] = "InvalidCommentToken";
+	ParseErrorCode[ParseErrorCode["UnexpectedEndOfComment"] = 11] = "UnexpectedEndOfComment";
+	ParseErrorCode[ParseErrorCode["UnexpectedEndOfString"] = 12] = "UnexpectedEndOfString";
+	ParseErrorCode[ParseErrorCode["UnexpectedEndOfNumber"] = 13] = "UnexpectedEndOfNumber";
+	ParseErrorCode[ParseErrorCode["InvalidUnicode"] = 14] = "InvalidUnicode";
+	ParseErrorCode[ParseErrorCode["InvalidEscapeCharacter"] = 15] = "InvalidEscapeCharacter";
+	ParseErrorCode[ParseErrorCode["InvalidCharacter"] = 16] = "InvalidCharacter";
+})(ParseErrorCode || (ParseErrorCode = {}));
+
+//#endregion
+//#region node_modules/picomatch/lib/constants.js
+var require_constants = /* @__PURE__ */ __commonJSMin(((exports, module) => {
+	const WIN_SLASH = "\\\\/";
+	const WIN_NO_SLASH = `[^${WIN_SLASH}]`;
+	/**
+	* Posix glob regex
+	*/
+	const DOT_LITERAL = "\\.";
+	const PLUS_LITERAL = "\\+";
+	const QMARK_LITERAL = "\\?";
+	const SLASH_LITERAL = "\\/";
+	const ONE_CHAR = "(?=.)";
+	const QMARK = "[^/]";
+	const END_ANCHOR = `(?:${SLASH_LITERAL}|$)`;
+	const START_ANCHOR = `(?:^|${SLASH_LITERAL})`;
+	const DOTS_SLASH = `${DOT_LITERAL}{1,2}${END_ANCHOR}`;
+	const POSIX_CHARS = {
+		DOT_LITERAL,
+		PLUS_LITERAL,
+		QMARK_LITERAL,
+		SLASH_LITERAL,
+		ONE_CHAR,
+		QMARK,
+		END_ANCHOR,
+		DOTS_SLASH,
+		NO_DOT: `(?!${DOT_LITERAL})`,
+		NO_DOTS: `(?!${START_ANCHOR}${DOTS_SLASH})`,
+		NO_DOT_SLASH: `(?!${DOT_LITERAL}{0,1}${END_ANCHOR})`,
+		NO_DOTS_SLASH: `(?!${DOTS_SLASH})`,
+		QMARK_NO_DOT: `[^.${SLASH_LITERAL}]`,
+		STAR: `${QMARK}*?`,
+		START_ANCHOR,
+		SEP: "/"
+	};
+	/**
+	* Windows glob regex
+	*/
+	const WINDOWS_CHARS = {
+		...POSIX_CHARS,
+		SLASH_LITERAL: `[${WIN_SLASH}]`,
+		QMARK: WIN_NO_SLASH,
+		STAR: `${WIN_NO_SLASH}*?`,
+		DOTS_SLASH: `${DOT_LITERAL}{1,2}(?:[${WIN_SLASH}]|$)`,
+		NO_DOT: `(?!${DOT_LITERAL})`,
+		NO_DOTS: `(?!(?:^|[${WIN_SLASH}])${DOT_LITERAL}{1,2}(?:[${WIN_SLASH}]|$))`,
+		NO_DOT_SLASH: `(?!${DOT_LITERAL}{0,1}(?:[${WIN_SLASH}]|$))`,
+		NO_DOTS_SLASH: `(?!${DOT_LITERAL}{1,2}(?:[${WIN_SLASH}]|$))`,
+		QMARK_NO_DOT: `[^.${WIN_SLASH}]`,
+		START_ANCHOR: `(?:^|[${WIN_SLASH}])`,
+		END_ANCHOR: `(?:[${WIN_SLASH}]|$)`,
+		SEP: "\\"
+	};
+	/**
+	* POSIX Bracket Regex
+	*/
+	const POSIX_REGEX_SOURCE = {
+		alnum: "a-zA-Z0-9",
+		alpha: "a-zA-Z",
+		ascii: "\\x00-\\x7F",
+		blank: " \\t",
+		cntrl: "\\x00-\\x1F\\x7F",
+		digit: "0-9",
+		graph: "\\x21-\\x7E",
+		lower: "a-z",
+		print: "\\x20-\\x7E ",
+		punct: "\\-!\"#$%&'()\\*+,./:;<=>?@[\\]^_`{|}~",
+		space: " \\t\\r\\n\\v\\f",
+		upper: "A-Z",
+		word: "A-Za-z0-9_",
+		xdigit: "A-Fa-f0-9"
+	};
+	module.exports = {
+		MAX_LENGTH: 1024 * 64,
+		POSIX_REGEX_SOURCE,
+		REGEX_BACKSLASH: /\\(?![*+?^${}(|)[\]])/g,
+		REGEX_NON_SPECIAL_CHARS: /^[^@![\].,$*+?^{}()|\\/]+/,
+		REGEX_SPECIAL_CHARS: /[-*+?.^${}(|)[\]]/,
+		REGEX_SPECIAL_CHARS_BACKREF: /(\\?)((\W)(\3*))/g,
+		REGEX_SPECIAL_CHARS_GLOBAL: /([-*+?.^${}(|)[\]])/g,
+		REGEX_REMOVE_BACKSLASH: /(?:\[.*?[^\\]\]|\\(?=.))/g,
+		REPLACEMENTS: {
+			__proto__: null,
+			"***": "*",
+			"**/**": "**",
+			"**/**/**": "**"
+		},
+		CHAR_0: 48,
+		CHAR_9: 57,
+		CHAR_UPPERCASE_A: 65,
+		CHAR_LOWERCASE_A: 97,
+		CHAR_UPPERCASE_Z: 90,
+		CHAR_LOWERCASE_Z: 122,
+		CHAR_LEFT_PARENTHESES: 40,
+		CHAR_RIGHT_PARENTHESES: 41,
+		CHAR_ASTERISK: 42,
+		CHAR_AMPERSAND: 38,
+		CHAR_AT: 64,
+		CHAR_BACKWARD_SLASH: 92,
+		CHAR_CARRIAGE_RETURN: 13,
+		CHAR_CIRCUMFLEX_ACCENT: 94,
+		CHAR_COLON: 58,
+		CHAR_COMMA: 44,
+		CHAR_DOT: 46,
+		CHAR_DOUBLE_QUOTE: 34,
+		CHAR_EQUAL: 61,
+		CHAR_EXCLAMATION_MARK: 33,
+		CHAR_FORM_FEED: 12,
+		CHAR_FORWARD_SLASH: 47,
+		CHAR_GRAVE_ACCENT: 96,
+		CHAR_HASH: 35,
+		CHAR_HYPHEN_MINUS: 45,
+		CHAR_LEFT_ANGLE_BRACKET: 60,
+		CHAR_LEFT_CURLY_BRACE: 123,
+		CHAR_LEFT_SQUARE_BRACKET: 91,
+		CHAR_LINE_FEED: 10,
+		CHAR_NO_BREAK_SPACE: 160,
+		CHAR_PERCENT: 37,
+		CHAR_PLUS: 43,
+		CHAR_QUESTION_MARK: 63,
+		CHAR_RIGHT_ANGLE_BRACKET: 62,
+		CHAR_RIGHT_CURLY_BRACE: 125,
+		CHAR_RIGHT_SQUARE_BRACKET: 93,
+		CHAR_SEMICOLON: 59,
+		CHAR_SINGLE_QUOTE: 39,
+		CHAR_SPACE: 32,
+		CHAR_TAB: 9,
+		CHAR_UNDERSCORE: 95,
+		CHAR_VERTICAL_LINE: 124,
+		CHAR_ZERO_WIDTH_NOBREAK_SPACE: 65279,
+		extglobChars(chars) {
+			return {
+				"!": {
+					type: "negate",
+					open: "(?:(?!(?:",
+					close: `))${chars.STAR})`
+				},
+				"?": {
+					type: "qmark",
+					open: "(?:",
+					close: ")?"
+				},
+				"+": {
+					type: "plus",
+					open: "(?:",
+					close: ")+"
+				},
+				"*": {
+					type: "star",
+					open: "(?:",
+					close: ")*"
+				},
+				"@": {
+					type: "at",
+					open: "(?:",
+					close: ")"
+				}
+			};
+		},
+		globChars(win32) {
+			return win32 === true ? WINDOWS_CHARS : POSIX_CHARS;
+		}
+	};
+}));
+
+//#endregion
+//#region node_modules/picomatch/lib/utils.js
+var require_utils = /* @__PURE__ */ __commonJSMin(((exports) => {
+	const { REGEX_BACKSLASH, REGEX_REMOVE_BACKSLASH, REGEX_SPECIAL_CHARS, REGEX_SPECIAL_CHARS_GLOBAL } = require_constants();
+	exports.isObject = (val) => val !== null && typeof val === "object" && !Array.isArray(val);
+	exports.hasRegexChars = (str) => REGEX_SPECIAL_CHARS.test(str);
+	exports.isRegexChar = (str) => str.length === 1 && exports.hasRegexChars(str);
+	exports.escapeRegex = (str) => str.replace(REGEX_SPECIAL_CHARS_GLOBAL, "\\$1");
+	exports.toPosixSlashes = (str) => str.replace(REGEX_BACKSLASH, "/");
+	exports.isWindows = () => {
+		if (typeof navigator !== "undefined" && navigator.platform) {
+			const platform = navigator.platform.toLowerCase();
+			return platform === "win32" || platform === "windows";
+		}
+		if (typeof process !== "undefined" && process.platform) return process.platform === "win32";
+		return false;
+	};
+	exports.removeBackslashes = (str) => {
+		return str.replace(REGEX_REMOVE_BACKSLASH, (match) => {
+			return match === "\\" ? "" : match;
+		});
+	};
+	exports.escapeLast = (input, char, lastIdx) => {
+		const idx = input.lastIndexOf(char, lastIdx);
+		if (idx === -1) return input;
+		if (input[idx - 1] === "\\") return exports.escapeLast(input, char, idx - 1);
+		return `${input.slice(0, idx)}\\${input.slice(idx)}`;
+	};
+	exports.removePrefix = (input, state = {}) => {
+		let output = input;
+		if (output.startsWith("./")) {
+			output = output.slice(2);
+			state.prefix = "./";
+		}
+		return output;
+	};
+	exports.wrapOutput = (input, state = {}, options = {}) => {
+		let output = `${options.contains ? "" : "^"}(?:${input})${options.contains ? "" : "$"}`;
+		if (state.negated === true) output = `(?:^(?!${output}).*$)`;
+		return output;
+	};
+	exports.basename = (path, { windows } = {}) => {
+		const segs = path.split(windows ? /[\\/]/ : "/");
+		const last = segs[segs.length - 1];
+		if (last === "") return segs[segs.length - 2];
+		return last;
+	};
+}));
+
+//#endregion
+//#region node_modules/picomatch/lib/scan.js
+var require_scan = /* @__PURE__ */ __commonJSMin(((exports, module) => {
+	const utils = require_utils();
+	const { CHAR_ASTERISK, CHAR_AT, CHAR_BACKWARD_SLASH, CHAR_COMMA, CHAR_DOT, CHAR_EXCLAMATION_MARK, CHAR_FORWARD_SLASH, CHAR_LEFT_CURLY_BRACE, CHAR_LEFT_PARENTHESES, CHAR_LEFT_SQUARE_BRACKET, CHAR_PLUS, CHAR_QUESTION_MARK, CHAR_RIGHT_CURLY_BRACE, CHAR_RIGHT_PARENTHESES, CHAR_RIGHT_SQUARE_BRACKET } = require_constants();
+	const isPathSeparator = (code) => {
+		return code === CHAR_FORWARD_SLASH || code === CHAR_BACKWARD_SLASH;
+	};
+	const depth = (token) => {
+		if (token.isPrefix !== true) token.depth = token.isGlobstar ? Infinity : 1;
+	};
+	/**
+	* Quickly scans a glob pattern and returns an object with a handful of
+	* useful properties, like `isGlob`, `path` (the leading non-glob, if it exists),
+	* `glob` (the actual pattern), `negated` (true if the path starts with `!` but not
+	* with `!(`) and `negatedExtglob` (true if the path starts with `!(`).
+	*
+	* ```js
+	* const pm = require('picomatch');
+	* console.log(pm.scan('foo/bar/*.js'));
+	* { isGlob: true, input: 'foo/bar/*.js', base: 'foo/bar', glob: '*.js' }
+	* ```
+	* @param {String} `str`
+	* @param {Object} `options`
+	* @return {Object} Returns an object with tokens and regex source string.
+	* @api public
+	*/
+	const scan = (input, options) => {
+		const opts = options || {};
+		const length = input.length - 1;
+		const scanToEnd = opts.parts === true || opts.scanToEnd === true;
+		const slashes = [];
+		const tokens = [];
+		const parts = [];
+		let str = input;
+		let index = -1;
+		let start = 0;
+		let lastIndex = 0;
+		let isBrace = false;
+		let isBracket = false;
+		let isGlob = false;
+		let isExtglob = false;
+		let isGlobstar = false;
+		let braceEscaped = false;
+		let backslashes = false;
+		let negated = false;
+		let negatedExtglob = false;
+		let finished = false;
+		let braces = 0;
+		let prev;
+		let code;
+		let token = {
+			value: "",
+			depth: 0,
+			isGlob: false
+		};
+		const eos = () => index >= length;
+		const peek = () => str.charCodeAt(index + 1);
+		const advance = () => {
+			prev = code;
+			return str.charCodeAt(++index);
+		};
+		while (index < length) {
+			code = advance();
+			let next;
+			if (code === CHAR_BACKWARD_SLASH) {
+				backslashes = token.backslashes = true;
+				code = advance();
+				if (code === CHAR_LEFT_CURLY_BRACE) braceEscaped = true;
+				continue;
+			}
+			if (braceEscaped === true || code === CHAR_LEFT_CURLY_BRACE) {
+				braces++;
+				while (eos() !== true && (code = advance())) {
+					if (code === CHAR_BACKWARD_SLASH) {
+						backslashes = token.backslashes = true;
+						advance();
+						continue;
+					}
+					if (code === CHAR_LEFT_CURLY_BRACE) {
+						braces++;
+						continue;
+					}
+					if (braceEscaped !== true && code === CHAR_DOT && (code = advance()) === CHAR_DOT) {
+						isBrace = token.isBrace = true;
+						isGlob = token.isGlob = true;
+						finished = true;
+						if (scanToEnd === true) continue;
+						break;
+					}
+					if (braceEscaped !== true && code === CHAR_COMMA) {
+						isBrace = token.isBrace = true;
+						isGlob = token.isGlob = true;
+						finished = true;
+						if (scanToEnd === true) continue;
+						break;
+					}
+					if (code === CHAR_RIGHT_CURLY_BRACE) {
+						braces--;
+						if (braces === 0) {
+							braceEscaped = false;
+							isBrace = token.isBrace = true;
+							finished = true;
+							break;
+						}
+					}
+				}
+				if (scanToEnd === true) continue;
+				break;
+			}
+			if (code === CHAR_FORWARD_SLASH) {
+				slashes.push(index);
+				tokens.push(token);
+				token = {
+					value: "",
+					depth: 0,
+					isGlob: false
+				};
+				if (finished === true) continue;
+				if (prev === CHAR_DOT && index === start + 1) {
+					start += 2;
+					continue;
+				}
+				lastIndex = index + 1;
+				continue;
+			}
+			if (opts.noext !== true) {
+				if ((code === CHAR_PLUS || code === CHAR_AT || code === CHAR_ASTERISK || code === CHAR_QUESTION_MARK || code === CHAR_EXCLAMATION_MARK) === true && peek() === CHAR_LEFT_PARENTHESES) {
+					isGlob = token.isGlob = true;
+					isExtglob = token.isExtglob = true;
+					finished = true;
+					if (code === CHAR_EXCLAMATION_MARK && index === start) negatedExtglob = true;
+					if (scanToEnd === true) {
+						while (eos() !== true && (code = advance())) {
+							if (code === CHAR_BACKWARD_SLASH) {
+								backslashes = token.backslashes = true;
+								code = advance();
+								continue;
+							}
+							if (code === CHAR_RIGHT_PARENTHESES) {
+								isGlob = token.isGlob = true;
+								finished = true;
+								break;
+							}
+						}
+						continue;
+					}
+					break;
+				}
+			}
+			if (code === CHAR_ASTERISK) {
+				if (prev === CHAR_ASTERISK) isGlobstar = token.isGlobstar = true;
+				isGlob = token.isGlob = true;
+				finished = true;
+				if (scanToEnd === true) continue;
+				break;
+			}
+			if (code === CHAR_QUESTION_MARK) {
+				isGlob = token.isGlob = true;
+				finished = true;
+				if (scanToEnd === true) continue;
+				break;
+			}
+			if (code === CHAR_LEFT_SQUARE_BRACKET) {
+				while (eos() !== true && (next = advance())) {
+					if (next === CHAR_BACKWARD_SLASH) {
+						backslashes = token.backslashes = true;
+						advance();
+						continue;
+					}
+					if (next === CHAR_RIGHT_SQUARE_BRACKET) {
+						isBracket = token.isBracket = true;
+						isGlob = token.isGlob = true;
+						finished = true;
+						break;
+					}
+				}
+				if (scanToEnd === true) continue;
+				break;
+			}
+			if (opts.nonegate !== true && code === CHAR_EXCLAMATION_MARK && index === start) {
+				negated = token.negated = true;
+				start++;
+				continue;
+			}
+			if (opts.noparen !== true && code === CHAR_LEFT_PARENTHESES) {
+				isGlob = token.isGlob = true;
+				if (scanToEnd === true) {
+					while (eos() !== true && (code = advance())) {
+						if (code === CHAR_LEFT_PARENTHESES) {
+							backslashes = token.backslashes = true;
+							code = advance();
+							continue;
+						}
+						if (code === CHAR_RIGHT_PARENTHESES) {
+							finished = true;
+							break;
+						}
+					}
+					continue;
+				}
+				break;
+			}
+			if (isGlob === true) {
+				finished = true;
+				if (scanToEnd === true) continue;
+				break;
+			}
+		}
+		if (opts.noext === true) {
+			isExtglob = false;
+			isGlob = false;
+		}
+		let base = str;
+		let prefix = "";
+		let glob = "";
+		if (start > 0) {
+			prefix = str.slice(0, start);
+			str = str.slice(start);
+			lastIndex -= start;
+		}
+		if (base && isGlob === true && lastIndex > 0) {
+			base = str.slice(0, lastIndex);
+			glob = str.slice(lastIndex);
+		} else if (isGlob === true) {
+			base = "";
+			glob = str;
+		} else base = str;
+		if (base && base !== "" && base !== "/" && base !== str) {
+			if (isPathSeparator(base.charCodeAt(base.length - 1))) base = base.slice(0, -1);
+		}
+		if (opts.unescape === true) {
+			if (glob) glob = utils.removeBackslashes(glob);
+			if (base && backslashes === true) base = utils.removeBackslashes(base);
+		}
+		const state = {
+			prefix,
+			input,
+			start,
+			base,
+			glob,
+			isBrace,
+			isBracket,
+			isGlob,
+			isExtglob,
+			isGlobstar,
+			negated,
+			negatedExtglob
+		};
+		if (opts.tokens === true) {
+			state.maxDepth = 0;
+			if (!isPathSeparator(code)) tokens.push(token);
+			state.tokens = tokens;
+		}
+		if (opts.parts === true || opts.tokens === true) {
+			let prevIndex;
+			for (let idx = 0; idx < slashes.length; idx++) {
+				const n = prevIndex ? prevIndex + 1 : start;
+				const i = slashes[idx];
+				const value = input.slice(n, i);
+				if (opts.tokens) {
+					if (idx === 0 && start !== 0) {
+						tokens[idx].isPrefix = true;
+						tokens[idx].value = prefix;
+					} else tokens[idx].value = value;
+					depth(tokens[idx]);
+					state.maxDepth += tokens[idx].depth;
+				}
+				if (idx !== 0 || value !== "") parts.push(value);
+				prevIndex = i;
+			}
+			if (prevIndex && prevIndex + 1 < input.length) {
+				const value = input.slice(prevIndex + 1);
+				parts.push(value);
+				if (opts.tokens) {
+					tokens[tokens.length - 1].value = value;
+					depth(tokens[tokens.length - 1]);
+					state.maxDepth += tokens[tokens.length - 1].depth;
+				}
+			}
+			state.slashes = slashes;
+			state.parts = parts;
+		}
+		return state;
+	};
+	module.exports = scan;
+}));
+
+//#endregion
+//#region node_modules/picomatch/lib/parse.js
+var require_parse = /* @__PURE__ */ __commonJSMin(((exports, module) => {
+	const constants = require_constants();
+	const utils = require_utils();
+	/**
+	* Constants
+	*/
+	const { MAX_LENGTH, POSIX_REGEX_SOURCE, REGEX_NON_SPECIAL_CHARS, REGEX_SPECIAL_CHARS_BACKREF, REPLACEMENTS } = constants;
+	/**
+	* Helpers
+	*/
+	const expandRange = (args, options) => {
+		if (typeof options.expandRange === "function") return options.expandRange(...args, options);
+		args.sort();
+		const value = `[${args.join("-")}]`;
+		try {
+			new RegExp(value);
+		} catch (ex) {
+			return args.map((v) => utils.escapeRegex(v)).join("..");
+		}
+		return value;
+	};
+	/**
+	* Create the message for a syntax error
+	*/
+	const syntaxError = (type, char) => {
+		return `Missing ${type}: "${char}" - use "\\\\${char}" to match literal characters`;
+	};
+	/**
+	* Parse the given input string.
+	* @param {String} input
+	* @param {Object} options
+	* @return {Object}
+	*/
+	const parse = (input, options) => {
+		if (typeof input !== "string") throw new TypeError("Expected a string");
+		input = REPLACEMENTS[input] || input;
+		const opts = { ...options };
+		const max = typeof opts.maxLength === "number" ? Math.min(MAX_LENGTH, opts.maxLength) : MAX_LENGTH;
+		let len = input.length;
+		if (len > max) throw new SyntaxError(`Input length: ${len}, exceeds maximum allowed length: ${max}`);
+		const bos = {
+			type: "bos",
+			value: "",
+			output: opts.prepend || ""
+		};
+		const tokens = [bos];
+		const capture = opts.capture ? "" : "?:";
+		const PLATFORM_CHARS = constants.globChars(opts.windows);
+		const EXTGLOB_CHARS = constants.extglobChars(PLATFORM_CHARS);
+		const { DOT_LITERAL, PLUS_LITERAL, SLASH_LITERAL, ONE_CHAR, DOTS_SLASH, NO_DOT, NO_DOT_SLASH, NO_DOTS_SLASH, QMARK, QMARK_NO_DOT, STAR, START_ANCHOR } = PLATFORM_CHARS;
+		const globstar = (opts) => {
+			return `(${capture}(?:(?!${START_ANCHOR}${opts.dot ? DOTS_SLASH : DOT_LITERAL}).)*?)`;
+		};
+		const nodot = opts.dot ? "" : NO_DOT;
+		const qmarkNoDot = opts.dot ? QMARK : QMARK_NO_DOT;
+		let star = opts.bash === true ? globstar(opts) : STAR;
+		if (opts.capture) star = `(${star})`;
+		if (typeof opts.noext === "boolean") opts.noextglob = opts.noext;
+		const state = {
+			input,
+			index: -1,
+			start: 0,
+			dot: opts.dot === true,
+			consumed: "",
+			output: "",
+			prefix: "",
+			backtrack: false,
+			negated: false,
+			brackets: 0,
+			braces: 0,
+			parens: 0,
+			quotes: 0,
+			globstar: false,
+			tokens
+		};
+		input = utils.removePrefix(input, state);
+		len = input.length;
+		const extglobs = [];
+		const braces = [];
+		const stack = [];
+		let prev = bos;
+		let value;
+		/**
+		* Tokenizing helpers
+		*/
+		const eos = () => state.index === len - 1;
+		const peek = state.peek = (n = 1) => input[state.index + n];
+		const advance = state.advance = () => input[++state.index] || "";
+		const remaining = () => input.slice(state.index + 1);
+		const consume = (value = "", num = 0) => {
+			state.consumed += value;
+			state.index += num;
+		};
+		const append = (token) => {
+			state.output += token.output != null ? token.output : token.value;
+			consume(token.value);
+		};
+		const negate = () => {
+			let count = 1;
+			while (peek() === "!" && (peek(2) !== "(" || peek(3) === "?")) {
+				advance();
+				state.start++;
+				count++;
+			}
+			if (count % 2 === 0) return false;
+			state.negated = true;
+			state.start++;
+			return true;
+		};
+		const increment = (type) => {
+			state[type]++;
+			stack.push(type);
+		};
+		const decrement = (type) => {
+			state[type]--;
+			stack.pop();
+		};
+		/**
+		* Push tokens onto the tokens array. This helper speeds up
+		* tokenizing by 1) helping us avoid backtracking as much as possible,
+		* and 2) helping us avoid creating extra tokens when consecutive
+		* characters are plain text. This improves performance and simplifies
+		* lookbehinds.
+		*/
+		const push = (tok) => {
+			if (prev.type === "globstar") {
+				const isBrace = state.braces > 0 && (tok.type === "comma" || tok.type === "brace");
+				const isExtglob = tok.extglob === true || extglobs.length && (tok.type === "pipe" || tok.type === "paren");
+				if (tok.type !== "slash" && tok.type !== "paren" && !isBrace && !isExtglob) {
+					state.output = state.output.slice(0, -prev.output.length);
+					prev.type = "star";
+					prev.value = "*";
+					prev.output = star;
+					state.output += prev.output;
+				}
+			}
+			if (extglobs.length && tok.type !== "paren") extglobs[extglobs.length - 1].inner += tok.value;
+			if (tok.value || tok.output) append(tok);
+			if (prev && prev.type === "text" && tok.type === "text") {
+				prev.output = (prev.output || prev.value) + tok.value;
+				prev.value += tok.value;
+				return;
+			}
+			tok.prev = prev;
+			tokens.push(tok);
+			prev = tok;
+		};
+		const extglobOpen = (type, value) => {
+			const token = {
+				...EXTGLOB_CHARS[value],
+				conditions: 1,
+				inner: ""
+			};
+			token.prev = prev;
+			token.parens = state.parens;
+			token.output = state.output;
+			const output = (opts.capture ? "(" : "") + token.open;
+			increment("parens");
+			push({
+				type,
+				value,
+				output: state.output ? "" : ONE_CHAR
+			});
+			push({
+				type: "paren",
+				extglob: true,
+				value: advance(),
+				output
+			});
+			extglobs.push(token);
+		};
+		const extglobClose = (token) => {
+			let output = token.close + (opts.capture ? ")" : "");
+			let rest;
+			if (token.type === "negate") {
+				let extglobStar = star;
+				if (token.inner && token.inner.length > 1 && token.inner.includes("/")) extglobStar = globstar(opts);
+				if (extglobStar !== star || eos() || /^\)+$/.test(remaining())) output = token.close = `)$))${extglobStar}`;
+				if (token.inner.includes("*") && (rest = remaining()) && /^\.[^\\/.]+$/.test(rest)) output = token.close = `)${parse(rest, {
+					...options,
+					fastpaths: false
+				}).output})${extglobStar})`;
+				if (token.prev.type === "bos") state.negatedExtglob = true;
+			}
+			push({
+				type: "paren",
+				extglob: true,
+				value,
+				output
+			});
+			decrement("parens");
+		};
+		/**
+		* Fast paths
+		*/
+		if (opts.fastpaths !== false && !/(^[*!]|[/()[\]{}"])/.test(input)) {
+			let backslashes = false;
+			let output = input.replace(REGEX_SPECIAL_CHARS_BACKREF, (m, esc, chars, first, rest, index) => {
+				if (first === "\\") {
+					backslashes = true;
+					return m;
+				}
+				if (first === "?") {
+					if (esc) return esc + first + (rest ? QMARK.repeat(rest.length) : "");
+					if (index === 0) return qmarkNoDot + (rest ? QMARK.repeat(rest.length) : "");
+					return QMARK.repeat(chars.length);
+				}
+				if (first === ".") return DOT_LITERAL.repeat(chars.length);
+				if (first === "*") {
+					if (esc) return esc + first + (rest ? star : "");
+					return star;
+				}
+				return esc ? m : `\\${m}`;
+			});
+			if (backslashes === true) if (opts.unescape === true) output = output.replace(/\\/g, "");
+			else output = output.replace(/\\+/g, (m) => {
+				return m.length % 2 === 0 ? "\\\\" : m ? "\\" : "";
+			});
+			if (output === input && opts.contains === true) {
+				state.output = input;
+				return state;
+			}
+			state.output = utils.wrapOutput(output, state, options);
+			return state;
+		}
+		/**
+		* Tokenize input until we reach end-of-string
+		*/
+		while (!eos()) {
+			value = advance();
+			if (value === "\0") continue;
+			/**
+			* Escaped characters
+			*/
+			if (value === "\\") {
+				const next = peek();
+				if (next === "/" && opts.bash !== true) continue;
+				if (next === "." || next === ";") continue;
+				if (!next) {
+					value += "\\";
+					push({
+						type: "text",
+						value
+					});
+					continue;
+				}
+				const match = /^\\+/.exec(remaining());
+				let slashes = 0;
+				if (match && match[0].length > 2) {
+					slashes = match[0].length;
+					state.index += slashes;
+					if (slashes % 2 !== 0) value += "\\";
+				}
+				if (opts.unescape === true) value = advance();
+				else value += advance();
+				if (state.brackets === 0) {
+					push({
+						type: "text",
+						value
+					});
+					continue;
+				}
+			}
+			/**
+			* If we're inside a regex character class, continue
+			* until we reach the closing bracket.
+			*/
+			if (state.brackets > 0 && (value !== "]" || prev.value === "[" || prev.value === "[^")) {
+				if (opts.posix !== false && value === ":") {
+					const inner = prev.value.slice(1);
+					if (inner.includes("[")) {
+						prev.posix = true;
+						if (inner.includes(":")) {
+							const idx = prev.value.lastIndexOf("[");
+							const pre = prev.value.slice(0, idx);
+							const posix = POSIX_REGEX_SOURCE[prev.value.slice(idx + 2)];
+							if (posix) {
+								prev.value = pre + posix;
+								state.backtrack = true;
+								advance();
+								if (!bos.output && tokens.indexOf(prev) === 1) bos.output = ONE_CHAR;
+								continue;
+							}
+						}
+					}
+				}
+				if (value === "[" && peek() !== ":" || value === "-" && peek() === "]") value = `\\${value}`;
+				if (value === "]" && (prev.value === "[" || prev.value === "[^")) value = `\\${value}`;
+				if (opts.posix === true && value === "!" && prev.value === "[") value = "^";
+				prev.value += value;
+				append({ value });
+				continue;
+			}
+			/**
+			* If we're inside a quoted string, continue
+			* until we reach the closing double quote.
+			*/
+			if (state.quotes === 1 && value !== "\"") {
+				value = utils.escapeRegex(value);
+				prev.value += value;
+				append({ value });
+				continue;
+			}
+			/**
+			* Double quotes
+			*/
+			if (value === "\"") {
+				state.quotes = state.quotes === 1 ? 0 : 1;
+				if (opts.keepQuotes === true) push({
+					type: "text",
+					value
+				});
+				continue;
+			}
+			/**
+			* Parentheses
+			*/
+			if (value === "(") {
+				increment("parens");
+				push({
+					type: "paren",
+					value
+				});
+				continue;
+			}
+			if (value === ")") {
+				if (state.parens === 0 && opts.strictBrackets === true) throw new SyntaxError(syntaxError("opening", "("));
+				const extglob = extglobs[extglobs.length - 1];
+				if (extglob && state.parens === extglob.parens + 1) {
+					extglobClose(extglobs.pop());
+					continue;
+				}
+				push({
+					type: "paren",
+					value,
+					output: state.parens ? ")" : "\\)"
+				});
+				decrement("parens");
+				continue;
+			}
+			/**
+			* Square brackets
+			*/
+			if (value === "[") {
+				if (opts.nobracket === true || !remaining().includes("]")) {
+					if (opts.nobracket !== true && opts.strictBrackets === true) throw new SyntaxError(syntaxError("closing", "]"));
+					value = `\\${value}`;
+				} else increment("brackets");
+				push({
+					type: "bracket",
+					value
+				});
+				continue;
+			}
+			if (value === "]") {
+				if (opts.nobracket === true || prev && prev.type === "bracket" && prev.value.length === 1) {
+					push({
+						type: "text",
+						value,
+						output: `\\${value}`
+					});
+					continue;
+				}
+				if (state.brackets === 0) {
+					if (opts.strictBrackets === true) throw new SyntaxError(syntaxError("opening", "["));
+					push({
+						type: "text",
+						value,
+						output: `\\${value}`
+					});
+					continue;
+				}
+				decrement("brackets");
+				const prevValue = prev.value.slice(1);
+				if (prev.posix !== true && prevValue[0] === "^" && !prevValue.includes("/")) value = `/${value}`;
+				prev.value += value;
+				append({ value });
+				if (opts.literalBrackets === false || utils.hasRegexChars(prevValue)) continue;
+				const escaped = utils.escapeRegex(prev.value);
+				state.output = state.output.slice(0, -prev.value.length);
+				if (opts.literalBrackets === true) {
+					state.output += escaped;
+					prev.value = escaped;
+					continue;
+				}
+				prev.value = `(${capture}${escaped}|${prev.value})`;
+				state.output += prev.value;
+				continue;
+			}
+			/**
+			* Braces
+			*/
+			if (value === "{" && opts.nobrace !== true) {
+				increment("braces");
+				const open = {
+					type: "brace",
+					value,
+					output: "(",
+					outputIndex: state.output.length,
+					tokensIndex: state.tokens.length
+				};
+				braces.push(open);
+				push(open);
+				continue;
+			}
+			if (value === "}") {
+				const brace = braces[braces.length - 1];
+				if (opts.nobrace === true || !brace) {
+					push({
+						type: "text",
+						value,
+						output: value
+					});
+					continue;
+				}
+				let output = ")";
+				if (brace.dots === true) {
+					const arr = tokens.slice();
+					const range = [];
+					for (let i = arr.length - 1; i >= 0; i--) {
+						tokens.pop();
+						if (arr[i].type === "brace") break;
+						if (arr[i].type !== "dots") range.unshift(arr[i].value);
+					}
+					output = expandRange(range, opts);
+					state.backtrack = true;
+				}
+				if (brace.comma !== true && brace.dots !== true) {
+					const out = state.output.slice(0, brace.outputIndex);
+					const toks = state.tokens.slice(brace.tokensIndex);
+					brace.value = brace.output = "\\{";
+					value = output = "\\}";
+					state.output = out;
+					for (const t of toks) state.output += t.output || t.value;
+				}
+				push({
+					type: "brace",
+					value,
+					output
+				});
+				decrement("braces");
+				braces.pop();
+				continue;
+			}
+			/**
+			* Pipes
+			*/
+			if (value === "|") {
+				if (extglobs.length > 0) extglobs[extglobs.length - 1].conditions++;
+				push({
+					type: "text",
+					value
+				});
+				continue;
+			}
+			/**
+			* Commas
+			*/
+			if (value === ",") {
+				let output = value;
+				const brace = braces[braces.length - 1];
+				if (brace && stack[stack.length - 1] === "braces") {
+					brace.comma = true;
+					output = "|";
+				}
+				push({
+					type: "comma",
+					value,
+					output
+				});
+				continue;
+			}
+			/**
+			* Slashes
+			*/
+			if (value === "/") {
+				if (prev.type === "dot" && state.index === state.start + 1) {
+					state.start = state.index + 1;
+					state.consumed = "";
+					state.output = "";
+					tokens.pop();
+					prev = bos;
+					continue;
+				}
+				push({
+					type: "slash",
+					value,
+					output: SLASH_LITERAL
+				});
+				continue;
+			}
+			/**
+			* Dots
+			*/
+			if (value === ".") {
+				if (state.braces > 0 && prev.type === "dot") {
+					if (prev.value === ".") prev.output = DOT_LITERAL;
+					const brace = braces[braces.length - 1];
+					prev.type = "dots";
+					prev.output += value;
+					prev.value += value;
+					brace.dots = true;
+					continue;
+				}
+				if (state.braces + state.parens === 0 && prev.type !== "bos" && prev.type !== "slash") {
+					push({
+						type: "text",
+						value,
+						output: DOT_LITERAL
+					});
+					continue;
+				}
+				push({
+					type: "dot",
+					value,
+					output: DOT_LITERAL
+				});
+				continue;
+			}
+			/**
+			* Question marks
+			*/
+			if (value === "?") {
+				if (!(prev && prev.value === "(") && opts.noextglob !== true && peek() === "(" && peek(2) !== "?") {
+					extglobOpen("qmark", value);
+					continue;
+				}
+				if (prev && prev.type === "paren") {
+					const next = peek();
+					let output = value;
+					if (prev.value === "(" && !/[!=<:]/.test(next) || next === "<" && !/<([!=]|\w+>)/.test(remaining())) output = `\\${value}`;
+					push({
+						type: "text",
+						value,
+						output
+					});
+					continue;
+				}
+				if (opts.dot !== true && (prev.type === "slash" || prev.type === "bos")) {
+					push({
+						type: "qmark",
+						value,
+						output: QMARK_NO_DOT
+					});
+					continue;
+				}
+				push({
+					type: "qmark",
+					value,
+					output: QMARK
+				});
+				continue;
+			}
+			/**
+			* Exclamation
+			*/
+			if (value === "!") {
+				if (opts.noextglob !== true && peek() === "(") {
+					if (peek(2) !== "?" || !/[!=<:]/.test(peek(3))) {
+						extglobOpen("negate", value);
+						continue;
+					}
+				}
+				if (opts.nonegate !== true && state.index === 0) {
+					negate();
+					continue;
+				}
+			}
+			/**
+			* Plus
+			*/
+			if (value === "+") {
+				if (opts.noextglob !== true && peek() === "(" && peek(2) !== "?") {
+					extglobOpen("plus", value);
+					continue;
+				}
+				if (prev && prev.value === "(" || opts.regex === false) {
+					push({
+						type: "plus",
+						value,
+						output: PLUS_LITERAL
+					});
+					continue;
+				}
+				if (prev && (prev.type === "bracket" || prev.type === "paren" || prev.type === "brace") || state.parens > 0) {
+					push({
+						type: "plus",
+						value
+					});
+					continue;
+				}
+				push({
+					type: "plus",
+					value: PLUS_LITERAL
+				});
+				continue;
+			}
+			/**
+			* Plain text
+			*/
+			if (value === "@") {
+				if (opts.noextglob !== true && peek() === "(" && peek(2) !== "?") {
+					push({
+						type: "at",
+						extglob: true,
+						value,
+						output: ""
+					});
+					continue;
+				}
+				push({
+					type: "text",
+					value
+				});
+				continue;
+			}
+			/**
+			* Plain text
+			*/
+			if (value !== "*") {
+				if (value === "$" || value === "^") value = `\\${value}`;
+				const match = REGEX_NON_SPECIAL_CHARS.exec(remaining());
+				if (match) {
+					value += match[0];
+					state.index += match[0].length;
+				}
+				push({
+					type: "text",
+					value
+				});
+				continue;
+			}
+			/**
+			* Stars
+			*/
+			if (prev && (prev.type === "globstar" || prev.star === true)) {
+				prev.type = "star";
+				prev.star = true;
+				prev.value += value;
+				prev.output = star;
+				state.backtrack = true;
+				state.globstar = true;
+				consume(value);
+				continue;
+			}
+			let rest = remaining();
+			if (opts.noextglob !== true && /^\([^?]/.test(rest)) {
+				extglobOpen("star", value);
+				continue;
+			}
+			if (prev.type === "star") {
+				if (opts.noglobstar === true) {
+					consume(value);
+					continue;
+				}
+				const prior = prev.prev;
+				const before = prior.prev;
+				const isStart = prior.type === "slash" || prior.type === "bos";
+				const afterStar = before && (before.type === "star" || before.type === "globstar");
+				if (opts.bash === true && (!isStart || rest[0] && rest[0] !== "/")) {
+					push({
+						type: "star",
+						value,
+						output: ""
+					});
+					continue;
+				}
+				const isBrace = state.braces > 0 && (prior.type === "comma" || prior.type === "brace");
+				const isExtglob = extglobs.length && (prior.type === "pipe" || prior.type === "paren");
+				if (!isStart && prior.type !== "paren" && !isBrace && !isExtglob) {
+					push({
+						type: "star",
+						value,
+						output: ""
+					});
+					continue;
+				}
+				while (rest.slice(0, 3) === "/**") {
+					const after = input[state.index + 4];
+					if (after && after !== "/") break;
+					rest = rest.slice(3);
+					consume("/**", 3);
+				}
+				if (prior.type === "bos" && eos()) {
+					prev.type = "globstar";
+					prev.value += value;
+					prev.output = globstar(opts);
+					state.output = prev.output;
+					state.globstar = true;
+					consume(value);
+					continue;
+				}
+				if (prior.type === "slash" && prior.prev.type !== "bos" && !afterStar && eos()) {
+					state.output = state.output.slice(0, -(prior.output + prev.output).length);
+					prior.output = `(?:${prior.output}`;
+					prev.type = "globstar";
+					prev.output = globstar(opts) + (opts.strictSlashes ? ")" : "|$)");
+					prev.value += value;
+					state.globstar = true;
+					state.output += prior.output + prev.output;
+					consume(value);
+					continue;
+				}
+				if (prior.type === "slash" && prior.prev.type !== "bos" && rest[0] === "/") {
+					const end = rest[1] !== void 0 ? "|$" : "";
+					state.output = state.output.slice(0, -(prior.output + prev.output).length);
+					prior.output = `(?:${prior.output}`;
+					prev.type = "globstar";
+					prev.output = `${globstar(opts)}${SLASH_LITERAL}|${SLASH_LITERAL}${end})`;
+					prev.value += value;
+					state.output += prior.output + prev.output;
+					state.globstar = true;
+					consume(value + advance());
+					push({
+						type: "slash",
+						value: "/",
+						output: ""
+					});
+					continue;
+				}
+				if (prior.type === "bos" && rest[0] === "/") {
+					prev.type = "globstar";
+					prev.value += value;
+					prev.output = `(?:^|${SLASH_LITERAL}|${globstar(opts)}${SLASH_LITERAL})`;
+					state.output = prev.output;
+					state.globstar = true;
+					consume(value + advance());
+					push({
+						type: "slash",
+						value: "/",
+						output: ""
+					});
+					continue;
+				}
+				state.output = state.output.slice(0, -prev.output.length);
+				prev.type = "globstar";
+				prev.output = globstar(opts);
+				prev.value += value;
+				state.output += prev.output;
+				state.globstar = true;
+				consume(value);
+				continue;
+			}
+			const token = {
+				type: "star",
+				value,
+				output: star
+			};
+			if (opts.bash === true) {
+				token.output = ".*?";
+				if (prev.type === "bos" || prev.type === "slash") token.output = nodot + token.output;
+				push(token);
+				continue;
+			}
+			if (prev && (prev.type === "bracket" || prev.type === "paren") && opts.regex === true) {
+				token.output = value;
+				push(token);
+				continue;
+			}
+			if (state.index === state.start || prev.type === "slash" || prev.type === "dot") {
+				if (prev.type === "dot") {
+					state.output += NO_DOT_SLASH;
+					prev.output += NO_DOT_SLASH;
+				} else if (opts.dot === true) {
+					state.output += NO_DOTS_SLASH;
+					prev.output += NO_DOTS_SLASH;
+				} else {
+					state.output += nodot;
+					prev.output += nodot;
+				}
+				if (peek() !== "*") {
+					state.output += ONE_CHAR;
+					prev.output += ONE_CHAR;
+				}
+			}
+			push(token);
+		}
+		while (state.brackets > 0) {
+			if (opts.strictBrackets === true) throw new SyntaxError(syntaxError("closing", "]"));
+			state.output = utils.escapeLast(state.output, "[");
+			decrement("brackets");
+		}
+		while (state.parens > 0) {
+			if (opts.strictBrackets === true) throw new SyntaxError(syntaxError("closing", ")"));
+			state.output = utils.escapeLast(state.output, "(");
+			decrement("parens");
+		}
+		while (state.braces > 0) {
+			if (opts.strictBrackets === true) throw new SyntaxError(syntaxError("closing", "}"));
+			state.output = utils.escapeLast(state.output, "{");
+			decrement("braces");
+		}
+		if (opts.strictSlashes !== true && (prev.type === "star" || prev.type === "bracket")) push({
+			type: "maybe_slash",
+			value: "",
+			output: `${SLASH_LITERAL}?`
+		});
+		if (state.backtrack === true) {
+			state.output = "";
+			for (const token of state.tokens) {
+				state.output += token.output != null ? token.output : token.value;
+				if (token.suffix) state.output += token.suffix;
+			}
+		}
+		return state;
+	};
+	/**
+	* Fast paths for creating regular expressions for common glob patterns.
+	* This can significantly speed up processing and has very little downside
+	* impact when none of the fast paths match.
+	*/
+	parse.fastpaths = (input, options) => {
+		const opts = { ...options };
+		const max = typeof opts.maxLength === "number" ? Math.min(MAX_LENGTH, opts.maxLength) : MAX_LENGTH;
+		const len = input.length;
+		if (len > max) throw new SyntaxError(`Input length: ${len}, exceeds maximum allowed length: ${max}`);
+		input = REPLACEMENTS[input] || input;
+		const { DOT_LITERAL, SLASH_LITERAL, ONE_CHAR, DOTS_SLASH, NO_DOT, NO_DOTS, NO_DOTS_SLASH, STAR, START_ANCHOR } = constants.globChars(opts.windows);
+		const nodot = opts.dot ? NO_DOTS : NO_DOT;
+		const slashDot = opts.dot ? NO_DOTS_SLASH : NO_DOT;
+		const capture = opts.capture ? "" : "?:";
+		const state = {
+			negated: false,
+			prefix: ""
+		};
+		let star = opts.bash === true ? ".*?" : STAR;
+		if (opts.capture) star = `(${star})`;
+		const globstar = (opts) => {
+			if (opts.noglobstar === true) return star;
+			return `(${capture}(?:(?!${START_ANCHOR}${opts.dot ? DOTS_SLASH : DOT_LITERAL}).)*?)`;
+		};
+		const create = (str) => {
+			switch (str) {
+				case "*": return `${nodot}${ONE_CHAR}${star}`;
+				case ".*": return `${DOT_LITERAL}${ONE_CHAR}${star}`;
+				case "*.*": return `${nodot}${star}${DOT_LITERAL}${ONE_CHAR}${star}`;
+				case "*/*": return `${nodot}${star}${SLASH_LITERAL}${ONE_CHAR}${slashDot}${star}`;
+				case "**": return nodot + globstar(opts);
+				case "**/*": return `(?:${nodot}${globstar(opts)}${SLASH_LITERAL})?${slashDot}${ONE_CHAR}${star}`;
+				case "**/*.*": return `(?:${nodot}${globstar(opts)}${SLASH_LITERAL})?${slashDot}${star}${DOT_LITERAL}${ONE_CHAR}${star}`;
+				case "**/.*": return `(?:${nodot}${globstar(opts)}${SLASH_LITERAL})?${DOT_LITERAL}${ONE_CHAR}${star}`;
+				default: {
+					const match = /^(.*?)\.(\w+)$/.exec(str);
+					if (!match) return;
+					const source = create(match[1]);
+					if (!source) return;
+					return source + DOT_LITERAL + match[2];
+				}
+			}
+		};
+		let source = create(utils.removePrefix(input, state));
+		if (source && opts.strictSlashes !== true) source += `${SLASH_LITERAL}?`;
+		return source;
+	};
+	module.exports = parse;
+}));
+
+//#endregion
+//#region node_modules/picomatch/lib/picomatch.js
+var require_picomatch$1 = /* @__PURE__ */ __commonJSMin(((exports, module) => {
+	const scan = require_scan();
+	const parse = require_parse();
+	const utils = require_utils();
+	const constants = require_constants();
+	const isObject = (val) => val && typeof val === "object" && !Array.isArray(val);
+	/**
+	* Creates a matcher function from one or more glob patterns. The
+	* returned function takes a string to match as its first argument,
+	* and returns true if the string is a match. The returned matcher
+	* function also takes a boolean as the second argument that, when true,
+	* returns an object with additional information.
+	*
+	* ```js
+	* const picomatch = require('picomatch');
+	* // picomatch(glob[, options]);
+	*
+	* const isMatch = picomatch('*.!(*a)');
+	* console.log(isMatch('a.a')); //=> false
+	* console.log(isMatch('a.b')); //=> true
+	* ```
+	* @name picomatch
+	* @param {String|Array} `globs` One or more glob patterns.
+	* @param {Object=} `options`
+	* @return {Function=} Returns a matcher function.
+	* @api public
+	*/
+	const picomatch = (glob, options, returnState = false) => {
+		if (Array.isArray(glob)) {
+			const fns = glob.map((input) => picomatch(input, options, returnState));
+			const arrayMatcher = (str) => {
+				for (const isMatch of fns) {
+					const state = isMatch(str);
+					if (state) return state;
+				}
+				return false;
+			};
+			return arrayMatcher;
+		}
+		const isState = isObject(glob) && glob.tokens && glob.input;
+		if (glob === "" || typeof glob !== "string" && !isState) throw new TypeError("Expected pattern to be a non-empty string");
+		const opts = options || {};
+		const posix = opts.windows;
+		const regex = isState ? picomatch.compileRe(glob, options) : picomatch.makeRe(glob, options, false, true);
+		const state = regex.state;
+		delete regex.state;
+		let isIgnored = () => false;
+		if (opts.ignore) {
+			const ignoreOpts = {
+				...options,
+				ignore: null,
+				onMatch: null,
+				onResult: null
+			};
+			isIgnored = picomatch(opts.ignore, ignoreOpts, returnState);
+		}
+		const matcher = (input, returnObject = false) => {
+			const { isMatch, match, output } = picomatch.test(input, regex, options, {
+				glob,
+				posix
+			});
+			const result = {
+				glob,
+				state,
+				regex,
+				posix,
+				input,
+				output,
+				match,
+				isMatch
+			};
+			if (typeof opts.onResult === "function") opts.onResult(result);
+			if (isMatch === false) {
+				result.isMatch = false;
+				return returnObject ? result : false;
+			}
+			if (isIgnored(input)) {
+				if (typeof opts.onIgnore === "function") opts.onIgnore(result);
+				result.isMatch = false;
+				return returnObject ? result : false;
+			}
+			if (typeof opts.onMatch === "function") opts.onMatch(result);
+			return returnObject ? result : true;
+		};
+		if (returnState) matcher.state = state;
+		return matcher;
+	};
+	/**
+	* Test `input` with the given `regex`. This is used by the main
+	* `picomatch()` function to test the input string.
+	*
+	* ```js
+	* const picomatch = require('picomatch');
+	* // picomatch.test(input, regex[, options]);
+	*
+	* console.log(picomatch.test('foo/bar', /^(?:([^/]*?)\/([^/]*?))$/));
+	* // { isMatch: true, match: [ 'foo/', 'foo', 'bar' ], output: 'foo/bar' }
+	* ```
+	* @param {String} `input` String to test.
+	* @param {RegExp} `regex`
+	* @return {Object} Returns an object with matching info.
+	* @api public
+	*/
+	picomatch.test = (input, regex, options, { glob, posix } = {}) => {
+		if (typeof input !== "string") throw new TypeError("Expected input to be a string");
+		if (input === "") return {
+			isMatch: false,
+			output: ""
+		};
+		const opts = options || {};
+		const format = opts.format || (posix ? utils.toPosixSlashes : null);
+		let match = input === glob;
+		let output = match && format ? format(input) : input;
+		if (match === false) {
+			output = format ? format(input) : input;
+			match = output === glob;
+		}
+		if (match === false || opts.capture === true) if (opts.matchBase === true || opts.basename === true) match = picomatch.matchBase(input, regex, options, posix);
+		else match = regex.exec(output);
+		return {
+			isMatch: Boolean(match),
+			match,
+			output
+		};
+	};
+	/**
+	* Match the basename of a filepath.
+	*
+	* ```js
+	* const picomatch = require('picomatch');
+	* // picomatch.matchBase(input, glob[, options]);
+	* console.log(picomatch.matchBase('foo/bar.js', '*.js'); // true
+	* ```
+	* @param {String} `input` String to test.
+	* @param {RegExp|String} `glob` Glob pattern or regex created by [.makeRe](#makeRe).
+	* @return {Boolean}
+	* @api public
+	*/
+	picomatch.matchBase = (input, glob, options) => {
+		return (glob instanceof RegExp ? glob : picomatch.makeRe(glob, options)).test(utils.basename(input));
+	};
+	/**
+	* Returns true if **any** of the given glob `patterns` match the specified `string`.
+	*
+	* ```js
+	* const picomatch = require('picomatch');
+	* // picomatch.isMatch(string, patterns[, options]);
+	*
+	* console.log(picomatch.isMatch('a.a', ['b.*', '*.a'])); //=> true
+	* console.log(picomatch.isMatch('a.a', 'b.*')); //=> false
+	* ```
+	* @param {String|Array} str The string to test.
+	* @param {String|Array} patterns One or more glob patterns to use for matching.
+	* @param {Object} [options] See available [options](#options).
+	* @return {Boolean} Returns true if any patterns match `str`
+	* @api public
+	*/
+	picomatch.isMatch = (str, patterns, options) => picomatch(patterns, options)(str);
+	/**
+	* Parse a glob pattern to create the source string for a regular
+	* expression.
+	*
+	* ```js
+	* const picomatch = require('picomatch');
+	* const result = picomatch.parse(pattern[, options]);
+	* ```
+	* @param {String} `pattern`
+	* @param {Object} `options`
+	* @return {Object} Returns an object with useful properties and output to be used as a regex source string.
+	* @api public
+	*/
+	picomatch.parse = (pattern, options) => {
+		if (Array.isArray(pattern)) return pattern.map((p) => picomatch.parse(p, options));
+		return parse(pattern, {
+			...options,
+			fastpaths: false
+		});
+	};
+	/**
+	* Scan a glob pattern to separate the pattern into segments.
+	*
+	* ```js
+	* const picomatch = require('picomatch');
+	* // picomatch.scan(input[, options]);
+	*
+	* const result = picomatch.scan('!./foo/*.js');
+	* console.log(result);
+	* { prefix: '!./',
+	*   input: '!./foo/*.js',
+	*   start: 3,
+	*   base: 'foo',
+	*   glob: '*.js',
+	*   isBrace: false,
+	*   isBracket: false,
+	*   isGlob: true,
+	*   isExtglob: false,
+	*   isGlobstar: false,
+	*   negated: true }
+	* ```
+	* @param {String} `input` Glob pattern to scan.
+	* @param {Object} `options`
+	* @return {Object} Returns an object with
+	* @api public
+	*/
+	picomatch.scan = (input, options) => scan(input, options);
+	/**
+	* Compile a regular expression from the `state` object returned by the
+	* [parse()](#parse) method.
+	*
+	* @param {Object} `state`
+	* @param {Object} `options`
+	* @param {Boolean} `returnOutput` Intended for implementors, this argument allows you to return the raw output from the parser.
+	* @param {Boolean} `returnState` Adds the state to a `state` property on the returned regex. Useful for implementors and debugging.
+	* @return {RegExp}
+	* @api public
+	*/
+	picomatch.compileRe = (state, options, returnOutput = false, returnState = false) => {
+		if (returnOutput === true) return state.output;
+		const opts = options || {};
+		const prepend = opts.contains ? "" : "^";
+		const append = opts.contains ? "" : "$";
+		let source = `${prepend}(?:${state.output})${append}`;
+		if (state && state.negated === true) source = `^(?!${source}).*$`;
+		const regex = picomatch.toRegex(source, options);
+		if (returnState === true) regex.state = state;
+		return regex;
+	};
+	/**
+	* Create a regular expression from a parsed glob pattern.
+	*
+	* ```js
+	* const picomatch = require('picomatch');
+	* const state = picomatch.parse('*.js');
+	* // picomatch.compileRe(state[, options]);
+	*
+	* console.log(picomatch.compileRe(state));
+	* //=> /^(?:(?!\.)(?=.)[^/]*?\.js)$/
+	* ```
+	* @param {String} `state` The object returned from the `.parse` method.
+	* @param {Object} `options`
+	* @param {Boolean} `returnOutput` Implementors may use this argument to return the compiled output, instead of a regular expression. This is not exposed on the options to prevent end-users from mutating the result.
+	* @param {Boolean} `returnState` Implementors may use this argument to return the state from the parsed glob with the returned regular expression.
+	* @return {RegExp} Returns a regex created from the given pattern.
+	* @api public
+	*/
+	picomatch.makeRe = (input, options = {}, returnOutput = false, returnState = false) => {
+		if (!input || typeof input !== "string") throw new TypeError("Expected a non-empty string");
+		let parsed = {
+			negated: false,
+			fastpaths: true
+		};
+		if (options.fastpaths !== false && (input[0] === "." || input[0] === "*")) parsed.output = parse.fastpaths(input, options);
+		if (!parsed.output) parsed = parse(input, options);
+		return picomatch.compileRe(parsed, options, returnOutput, returnState);
+	};
+	/**
+	* Create a regular expression from the given regex source string.
+	*
+	* ```js
+	* const picomatch = require('picomatch');
+	* // picomatch.toRegex(source[, options]);
+	*
+	* const { output } = picomatch.parse('*.js');
+	* console.log(picomatch.toRegex(output));
+	* //=> /^(?:(?!\.)(?=.)[^/]*?\.js)$/
+	* ```
+	* @param {String} `source` Regular expression source string.
+	* @param {Object} `options`
+	* @return {RegExp}
+	* @api public
+	*/
+	picomatch.toRegex = (source, options) => {
+		try {
+			const opts = options || {};
+			return new RegExp(source, opts.flags || (opts.nocase ? "i" : ""));
+		} catch (err) {
+			if (options && options.debug === true) throw err;
+			return /$^/;
+		}
+	};
+	/**
+	* Picomatch constants.
+	* @return {Object}
+	*/
+	picomatch.constants = constants;
+	/**
+	* Expose "picomatch"
+	*/
+	module.exports = picomatch;
+}));
+
+//#endregion
+//#region node_modules/picomatch/index.js
+var require_picomatch = /* @__PURE__ */ __commonJSMin(((exports, module) => {
+	const pico = require_picomatch$1();
+	const utils = require_utils();
+	function picomatch(glob, options, returnState = false) {
+		if (options && (options.windows === null || options.windows === void 0)) options = {
+			...options,
+			windows: utils.isWindows()
+		};
+		return pico(glob, options, returnState);
+	}
+	Object.assign(picomatch, pico);
+	module.exports = picomatch;
+}));
+
+//#endregion
+//#region src/utils/paths.ts
+var import_picomatch = /* @__PURE__ */ __toESM(require_picomatch(), 1);
+const globMatcherCache = /* @__PURE__ */ new Map();
+const toPosixPath = (value) => {
+	return value.replaceAll(win32.sep, posix.sep);
+};
+const normalizeGlob = (glob) => {
+	const normalized = toPosixPath(glob.trim());
+	if (!normalized) throw new Error("Glob cannot be empty");
+	return normalized;
+};
+const createGlobMatcher = (glob) => {
+	const normalized = normalizeGlob(glob);
+	try {
+		return (0, import_picomatch.default)(normalized, {
+			dot: true,
+			posixSlashes: true,
+			strictBrackets: true
+		});
+	} catch (error) {
+		throw new Error(`Invalid glob syntax "${normalized}": ${error instanceof Error ? error.message : String(error)}`);
+	}
+};
+const getGlobMatcher = (glob) => {
+	const normalized = normalizeGlob(glob);
+	const cached = globMatcherCache.get(normalized);
+	if (cached) return cached;
+	const matcher = createGlobMatcher(normalized);
+	globMatcherCache.set(normalized, matcher);
+	return matcher;
+};
+const validateGlobPattern = (glob) => {
+	createGlobMatcher(glob);
+};
+const isGlobMatch = (filePath, glob) => {
+	return getGlobMatcher(glob)(toPosixPath(filePath));
+};
+const uniqueSortedPosix = (files) => {
+	return [...new Set(files.map(toPosixPath))].sort();
+};
+const glob = {
+	match: isGlobMatch,
+	validate: validateGlobPattern
+};
+const resolveManifestPathInWorkspace = (filePath, options = {}) => {
+	const resolveWorkspaceRoot = (workspaceRoot) => {
+		const rawRoot = workspaceRoot?.trim() || process.env.GITHUB_WORKSPACE?.trim() || process.cwd();
+		return path.resolve(rawRoot);
+	};
+	const manifestPathValidationError = (configuredPath, targetLabel, reason) => {
+		const targetPrefix = targetLabel ? ` for target "${targetLabel}"` : "";
+		return /* @__PURE__ */ new Error(`Manifest path validation failed${targetPrefix} for configured path "${configuredPath}": ${reason}`);
+	};
+	const configuredPath = String(filePath ?? "");
+	if (!configuredPath.trim()) throw manifestPathValidationError(configuredPath, options.targetLabel, "path is empty");
+	const workspaceRoot = resolveWorkspaceRoot(options.workspaceRoot);
+	const resolvedPath = path.resolve(workspaceRoot, configuredPath);
+	const relative = path.relative(workspaceRoot, resolvedPath);
+	if (relative.startsWith("..") || path.isAbsolute(relative)) throw manifestPathValidationError(configuredPath, options.targetLabel, `resolved path "${resolvedPath}" is outside workspace root "${workspaceRoot}"`);
+	return resolvedPath;
+};
+const pathUtils = {
+	asPosix: toPosixPath,
+	dedupAndSort: uniqueSortedPosix,
+	glob,
+	manifests: { resolveInWorkspace: resolveManifestPathInWorkspace }
+};
+
+//#endregion
+//#region node_modules/zod/v4/core/core.js
+/** A special constant with type `never` */
+const NEVER = Object.freeze({ status: "aborted" });
+function $constructor(name, initializer, params) {
+	function init(inst, def) {
+		if (!inst._zod) Object.defineProperty(inst, "_zod", {
+			value: {
+				def,
+				constr: _,
+				traits: /* @__PURE__ */ new Set()
+			},
+			enumerable: false
+		});
+		if (inst._zod.traits.has(name)) return;
+		inst._zod.traits.add(name);
+		initializer(inst, def);
+		const proto = _.prototype;
+		const keys = Object.keys(proto);
+		for (let i = 0; i < keys.length; i++) {
+			const k = keys[i];
+			if (!(k in inst)) inst[k] = proto[k].bind(inst);
+		}
+	}
+	const Parent = params?.Parent ?? Object;
+	class Definition extends Parent {}
+	Object.defineProperty(Definition, "name", { value: name });
+	function _(def) {
+		var _a;
+		const inst = params?.Parent ? new Definition() : this;
+		init(inst, def);
+		(_a = inst._zod).deferred ?? (_a.deferred = []);
+		for (const fn of inst._zod.deferred) fn();
+		return inst;
+	}
+	Object.defineProperty(_, "init", { value: init });
+	Object.defineProperty(_, Symbol.hasInstance, { value: (inst) => {
+		if (params?.Parent && inst instanceof params.Parent) return true;
+		return inst?._zod?.traits?.has(name);
+	} });
+	Object.defineProperty(_, "name", { value: name });
+	return _;
+}
+var $ZodAsyncError = class extends Error {
+	constructor() {
+		super(`Encountered Promise during synchronous parse. Use .parseAsync() instead.`);
+	}
+};
+var $ZodEncodeError = class extends Error {
+	constructor(name) {
+		super(`Encountered unidirectional transform during encode: ${name}`);
+		this.name = "ZodEncodeError";
+	}
+};
+const globalConfig = {};
+function config(newConfig) {
+	if (newConfig) Object.assign(globalConfig, newConfig);
+	return globalConfig;
+}
+
+//#endregion
+//#region node_modules/zod/v4/core/util.js
+function getEnumValues(entries) {
+	const numericValues = Object.values(entries).filter((v) => typeof v === "number");
+	return Object.entries(entries).filter(([k, _]) => numericValues.indexOf(+k) === -1).map(([_, v]) => v);
+}
+function jsonStringifyReplacer(_, value) {
+	if (typeof value === "bigint") return value.toString();
+	return value;
+}
+function cached(getter) {
+	return { get value() {
+		{
+			const value = getter();
+			Object.defineProperty(this, "value", { value });
+			return value;
+		}
+		throw new Error("cached value already set");
+	} };
+}
+function nullish(input) {
+	return input === null || input === void 0;
+}
+function cleanRegex(source) {
+	const start = source.startsWith("^") ? 1 : 0;
+	const end = source.endsWith("$") ? source.length - 1 : source.length;
+	return source.slice(start, end);
+}
+const EVALUATING = Symbol("evaluating");
+function defineLazy(object, key, getter) {
+	let value = void 0;
+	Object.defineProperty(object, key, {
+		get() {
+			if (value === EVALUATING) return;
+			if (value === void 0) {
+				value = EVALUATING;
+				value = getter();
+			}
+			return value;
+		},
+		set(v) {
+			Object.defineProperty(object, key, { value: v });
+		},
+		configurable: true
+	});
+}
+function assignProp(target, prop, value) {
+	Object.defineProperty(target, prop, {
+		value,
+		writable: true,
+		enumerable: true,
+		configurable: true
+	});
+}
+function mergeDefs(...defs) {
+	const mergedDescriptors = {};
+	for (const def of defs) {
+		const descriptors = Object.getOwnPropertyDescriptors(def);
+		Object.assign(mergedDescriptors, descriptors);
+	}
+	return Object.defineProperties({}, mergedDescriptors);
+}
+function esc(str) {
+	return JSON.stringify(str);
+}
+function slugify(input) {
+	return input.toLowerCase().trim().replace(/[^\w\s-]/g, "").replace(/[\s_-]+/g, "-").replace(/^-+|-+$/g, "");
+}
+const captureStackTrace = "captureStackTrace" in Error ? Error.captureStackTrace : (..._args) => {};
+function isObject(data) {
+	return typeof data === "object" && data !== null && !Array.isArray(data);
+}
+const allowsEval = cached(() => {
+	if (typeof navigator !== "undefined" && navigator?.userAgent?.includes("Cloudflare")) return false;
+	try {
+		new Function("");
+		return true;
+	} catch (_) {
+		return false;
+	}
+});
+function isPlainObject$2(o) {
+	if (isObject(o) === false) return false;
+	const ctor = o.constructor;
+	if (ctor === void 0) return true;
+	if (typeof ctor !== "function") return true;
+	const prot = ctor.prototype;
+	if (isObject(prot) === false) return false;
+	if (Object.prototype.hasOwnProperty.call(prot, "isPrototypeOf") === false) return false;
+	return true;
+}
+function shallowClone(o) {
+	if (isPlainObject$2(o)) return { ...o };
+	if (Array.isArray(o)) return [...o];
+	return o;
+}
+const propertyKeyTypes = new Set([
+	"string",
+	"number",
+	"symbol"
+]);
+function escapeRegex(str) {
+	return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+function clone(inst, def, params) {
+	const cl = new inst._zod.constr(def ?? inst._zod.def);
+	if (!def || params?.parent) cl._zod.parent = inst;
+	return cl;
+}
+function normalizeParams(_params) {
+	const params = _params;
+	if (!params) return {};
+	if (typeof params === "string") return { error: () => params };
+	if (params?.message !== void 0) {
+		if (params?.error !== void 0) throw new Error("Cannot specify both `message` and `error` params");
+		params.error = params.message;
+	}
+	delete params.message;
+	if (typeof params.error === "string") return {
+		...params,
+		error: () => params.error
+	};
+	return params;
+}
+function optionalKeys(shape) {
+	return Object.keys(shape).filter((k) => {
+		return shape[k]._zod.optin === "optional" && shape[k]._zod.optout === "optional";
+	});
+}
+const NUMBER_FORMAT_RANGES = {
+	safeint: [Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER],
+	int32: [-2147483648, 2147483647],
+	uint32: [0, 4294967295],
+	float32: [-34028234663852886e22, 34028234663852886e22],
+	float64: [-Number.MAX_VALUE, Number.MAX_VALUE]
+};
+function pick(schema, mask) {
+	const currDef = schema._zod.def;
+	const checks = currDef.checks;
+	if (checks && checks.length > 0) throw new Error(".pick() cannot be used on object schemas containing refinements");
+	return clone(schema, mergeDefs(schema._zod.def, {
+		get shape() {
+			const newShape = {};
+			for (const key in mask) {
+				if (!(key in currDef.shape)) throw new Error(`Unrecognized key: "${key}"`);
+				if (!mask[key]) continue;
+				newShape[key] = currDef.shape[key];
+			}
+			assignProp(this, "shape", newShape);
+			return newShape;
+		},
+		checks: []
+	}));
+}
+function omit$1(schema, mask) {
+	const currDef = schema._zod.def;
+	const checks = currDef.checks;
+	if (checks && checks.length > 0) throw new Error(".omit() cannot be used on object schemas containing refinements");
+	return clone(schema, mergeDefs(schema._zod.def, {
+		get shape() {
+			const newShape = { ...schema._zod.def.shape };
+			for (const key in mask) {
+				if (!(key in currDef.shape)) throw new Error(`Unrecognized key: "${key}"`);
+				if (!mask[key]) continue;
+				delete newShape[key];
+			}
+			assignProp(this, "shape", newShape);
+			return newShape;
+		},
+		checks: []
+	}));
+}
+function extend(schema, shape) {
+	if (!isPlainObject$2(shape)) throw new Error("Invalid input to extend: expected a plain object");
+	const checks = schema._zod.def.checks;
+	if (checks && checks.length > 0) {
+		const existingShape = schema._zod.def.shape;
+		for (const key in shape) if (Object.getOwnPropertyDescriptor(existingShape, key) !== void 0) throw new Error("Cannot overwrite keys on object schemas containing refinements. Use `.safeExtend()` instead.");
+	}
+	return clone(schema, mergeDefs(schema._zod.def, { get shape() {
+		const _shape = {
+			...schema._zod.def.shape,
+			...shape
+		};
+		assignProp(this, "shape", _shape);
+		return _shape;
+	} }));
+}
+function safeExtend(schema, shape) {
+	if (!isPlainObject$2(shape)) throw new Error("Invalid input to safeExtend: expected a plain object");
+	return clone(schema, mergeDefs(schema._zod.def, { get shape() {
+		const _shape = {
+			...schema._zod.def.shape,
+			...shape
+		};
+		assignProp(this, "shape", _shape);
+		return _shape;
+	} }));
+}
+function merge$1(a, b) {
+	return clone(a, mergeDefs(a._zod.def, {
+		get shape() {
+			const _shape = {
+				...a._zod.def.shape,
+				...b._zod.def.shape
+			};
+			assignProp(this, "shape", _shape);
+			return _shape;
+		},
+		get catchall() {
+			return b._zod.def.catchall;
+		},
+		checks: []
+	}));
+}
+function partial(Class, schema, mask) {
+	const checks = schema._zod.def.checks;
+	if (checks && checks.length > 0) throw new Error(".partial() cannot be used on object schemas containing refinements");
+	return clone(schema, mergeDefs(schema._zod.def, {
+		get shape() {
+			const oldShape = schema._zod.def.shape;
+			const shape = { ...oldShape };
+			if (mask) for (const key in mask) {
+				if (!(key in oldShape)) throw new Error(`Unrecognized key: "${key}"`);
+				if (!mask[key]) continue;
+				shape[key] = Class ? new Class({
+					type: "optional",
+					innerType: oldShape[key]
+				}) : oldShape[key];
+			}
+			else for (const key in oldShape) shape[key] = Class ? new Class({
+				type: "optional",
+				innerType: oldShape[key]
+			}) : oldShape[key];
+			assignProp(this, "shape", shape);
+			return shape;
+		},
+		checks: []
+	}));
+}
+function required(Class, schema, mask) {
+	return clone(schema, mergeDefs(schema._zod.def, { get shape() {
+		const oldShape = schema._zod.def.shape;
+		const shape = { ...oldShape };
+		if (mask) for (const key in mask) {
+			if (!(key in shape)) throw new Error(`Unrecognized key: "${key}"`);
+			if (!mask[key]) continue;
+			shape[key] = new Class({
+				type: "nonoptional",
+				innerType: oldShape[key]
+			});
+		}
+		else for (const key in oldShape) shape[key] = new Class({
+			type: "nonoptional",
+			innerType: oldShape[key]
+		});
+		assignProp(this, "shape", shape);
+		return shape;
+	} }));
+}
+function aborted(x, startIndex = 0) {
+	if (x.aborted === true) return true;
+	for (let i = startIndex; i < x.issues.length; i++) if (x.issues[i]?.continue !== true) return true;
+	return false;
+}
+function prefixIssues(path, issues) {
+	return issues.map((iss) => {
+		var _a;
+		(_a = iss).path ?? (_a.path = []);
+		iss.path.unshift(path);
+		return iss;
+	});
+}
+function unwrapMessage(message) {
+	return typeof message === "string" ? message : message?.message;
+}
+function finalizeIssue(iss, ctx, config) {
+	const full = {
+		...iss,
+		path: iss.path ?? []
+	};
+	if (!iss.message) full.message = unwrapMessage(iss.inst?._zod.def?.error?.(iss)) ?? unwrapMessage(ctx?.error?.(iss)) ?? unwrapMessage(config.customError?.(iss)) ?? unwrapMessage(config.localeError?.(iss)) ?? "Invalid input";
+	delete full.inst;
+	delete full.continue;
+	if (!ctx?.reportInput) delete full.input;
+	return full;
+}
+function getLengthableOrigin(input) {
+	if (Array.isArray(input)) return "array";
+	if (typeof input === "string") return "string";
+	return "unknown";
+}
+function issue(...args) {
+	const [iss, input, inst] = args;
+	if (typeof iss === "string") return {
+		message: iss,
+		code: "custom",
+		input,
+		inst
+	};
+	return { ...iss };
+}
+
+//#endregion
+//#region node_modules/zod/v4/core/errors.js
+const initializer$1 = (inst, def) => {
+	inst.name = "$ZodError";
+	Object.defineProperty(inst, "_zod", {
+		value: inst._zod,
+		enumerable: false
+	});
+	Object.defineProperty(inst, "issues", {
+		value: def,
+		enumerable: false
+	});
+	inst.message = JSON.stringify(def, jsonStringifyReplacer, 2);
+	Object.defineProperty(inst, "toString", {
+		value: () => inst.message,
+		enumerable: false
+	});
+};
+const $ZodError = $constructor("$ZodError", initializer$1);
+const $ZodRealError = $constructor("$ZodError", initializer$1, { Parent: Error });
+function flattenError(error, mapper = (issue) => issue.message) {
+	const fieldErrors = {};
+	const formErrors = [];
+	for (const sub of error.issues) if (sub.path.length > 0) {
+		fieldErrors[sub.path[0]] = fieldErrors[sub.path[0]] || [];
+		fieldErrors[sub.path[0]].push(mapper(sub));
+	} else formErrors.push(mapper(sub));
+	return {
+		formErrors,
+		fieldErrors
+	};
+}
+function formatError(error, mapper = (issue) => issue.message) {
+	const fieldErrors = { _errors: [] };
+	const processError = (error) => {
+		for (const issue of error.issues) if (issue.code === "invalid_union" && issue.errors.length) issue.errors.map((issues) => processError({ issues }));
+		else if (issue.code === "invalid_key") processError({ issues: issue.issues });
+		else if (issue.code === "invalid_element") processError({ issues: issue.issues });
+		else if (issue.path.length === 0) fieldErrors._errors.push(mapper(issue));
+		else {
+			let curr = fieldErrors;
+			let i = 0;
+			while (i < issue.path.length) {
+				const el = issue.path[i];
+				if (!(i === issue.path.length - 1)) curr[el] = curr[el] || { _errors: [] };
+				else {
+					curr[el] = curr[el] || { _errors: [] };
+					curr[el]._errors.push(mapper(issue));
+				}
+				curr = curr[el];
+				i++;
+			}
+		}
+	};
+	processError(error);
+	return fieldErrors;
+}
+
+//#endregion
+//#region node_modules/zod/v4/core/parse.js
+const _parse = (_Err) => (schema, value, _ctx, _params) => {
+	const ctx = _ctx ? Object.assign(_ctx, { async: false }) : { async: false };
+	const result = schema._zod.run({
+		value,
+		issues: []
+	}, ctx);
+	if (result instanceof Promise) throw new $ZodAsyncError();
+	if (result.issues.length) {
+		const e = new (_params?.Err ?? _Err)(result.issues.map((iss) => finalizeIssue(iss, ctx, config())));
+		captureStackTrace(e, _params?.callee);
+		throw e;
+	}
+	return result.value;
+};
+const parse$3 = /* @__PURE__ */ _parse($ZodRealError);
+const _parseAsync = (_Err) => async (schema, value, _ctx, params) => {
+	const ctx = _ctx ? Object.assign(_ctx, { async: true }) : { async: true };
+	let result = schema._zod.run({
+		value,
+		issues: []
+	}, ctx);
+	if (result instanceof Promise) result = await result;
+	if (result.issues.length) {
+		const e = new (params?.Err ?? _Err)(result.issues.map((iss) => finalizeIssue(iss, ctx, config())));
+		captureStackTrace(e, params?.callee);
+		throw e;
+	}
+	return result.value;
+};
+const parseAsync$1 = /* @__PURE__ */ _parseAsync($ZodRealError);
+const _safeParse = (_Err) => (schema, value, _ctx) => {
+	const ctx = _ctx ? {
+		..._ctx,
+		async: false
+	} : { async: false };
+	const result = schema._zod.run({
+		value,
+		issues: []
+	}, ctx);
+	if (result instanceof Promise) throw new $ZodAsyncError();
+	return result.issues.length ? {
+		success: false,
+		error: new (_Err ?? $ZodError)(result.issues.map((iss) => finalizeIssue(iss, ctx, config())))
+	} : {
+		success: true,
+		data: result.value
+	};
+};
+const safeParse$2 = /* @__PURE__ */ _safeParse($ZodRealError);
+const _safeParseAsync = (_Err) => async (schema, value, _ctx) => {
+	const ctx = _ctx ? Object.assign(_ctx, { async: true }) : { async: true };
+	let result = schema._zod.run({
+		value,
+		issues: []
+	}, ctx);
+	if (result instanceof Promise) result = await result;
+	return result.issues.length ? {
+		success: false,
+		error: new _Err(result.issues.map((iss) => finalizeIssue(iss, ctx, config())))
+	} : {
+		success: true,
+		data: result.value
+	};
+};
+const safeParseAsync$1 = /* @__PURE__ */ _safeParseAsync($ZodRealError);
+const _encode = (_Err) => (schema, value, _ctx) => {
+	const ctx = _ctx ? Object.assign(_ctx, { direction: "backward" }) : { direction: "backward" };
+	return _parse(_Err)(schema, value, ctx);
+};
+const encode$1 = /* @__PURE__ */ _encode($ZodRealError);
+const _decode = (_Err) => (schema, value, _ctx) => {
+	return _parse(_Err)(schema, value, _ctx);
+};
+const decode$1 = /* @__PURE__ */ _decode($ZodRealError);
+const _encodeAsync = (_Err) => async (schema, value, _ctx) => {
+	const ctx = _ctx ? Object.assign(_ctx, { direction: "backward" }) : { direction: "backward" };
+	return _parseAsync(_Err)(schema, value, ctx);
+};
+const encodeAsync$1 = /* @__PURE__ */ _encodeAsync($ZodRealError);
+const _decodeAsync = (_Err) => async (schema, value, _ctx) => {
+	return _parseAsync(_Err)(schema, value, _ctx);
+};
+const decodeAsync$1 = /* @__PURE__ */ _decodeAsync($ZodRealError);
+const _safeEncode = (_Err) => (schema, value, _ctx) => {
+	const ctx = _ctx ? Object.assign(_ctx, { direction: "backward" }) : { direction: "backward" };
+	return _safeParse(_Err)(schema, value, ctx);
+};
+const safeEncode$1 = /* @__PURE__ */ _safeEncode($ZodRealError);
+const _safeDecode = (_Err) => (schema, value, _ctx) => {
+	return _safeParse(_Err)(schema, value, _ctx);
+};
+const safeDecode$1 = /* @__PURE__ */ _safeDecode($ZodRealError);
+const _safeEncodeAsync = (_Err) => async (schema, value, _ctx) => {
+	const ctx = _ctx ? Object.assign(_ctx, { direction: "backward" }) : { direction: "backward" };
+	return _safeParseAsync(_Err)(schema, value, ctx);
+};
+const safeEncodeAsync$1 = /* @__PURE__ */ _safeEncodeAsync($ZodRealError);
+const _safeDecodeAsync = (_Err) => async (schema, value, _ctx) => {
+	return _safeParseAsync(_Err)(schema, value, _ctx);
+};
+const safeDecodeAsync$1 = /* @__PURE__ */ _safeDecodeAsync($ZodRealError);
+
+//#endregion
+//#region node_modules/zod/v4/core/regexes.js
+const cuid = /^[cC][^\s-]{8,}$/;
+const cuid2 = /^[0-9a-z]+$/;
+const ulid = /^[0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{26}$/;
+const xid = /^[0-9a-vA-V]{20}$/;
+const ksuid = /^[A-Za-z0-9]{27}$/;
+const nanoid = /^[a-zA-Z0-9_-]{21}$/;
+/** ISO 8601-1 duration regex. Does not support the 8601-2 extensions like negative durations or fractional/negative components. */
+const duration$1 = /^P(?:(\d+W)|(?!.*W)(?=\d|T\d)(\d+Y)?(\d+M)?(\d+D)?(T(?=\d)(\d+H)?(\d+M)?(\d+([.,]\d+)?S)?)?)$/;
+/** A regex for any UUID-like identifier: 8-4-4-4-12 hex pattern */
+const guid = /^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/;
+/** Returns a regex for validating an RFC 9562/4122 UUID.
+*
+* @param version Optionally specify a version 1-8. If no version is specified, all versions are supported. */
+const uuid = (version) => {
+	if (!version) return /^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/;
+	return new RegExp(`^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-${version}[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$`);
+};
+/** Practical email validation */
+const email = /^(?!\.)(?!.*\.\.)([A-Za-z0-9_'+\-\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\-]*\.)+[A-Za-z]{2,}$/;
+const _emoji$1 = `^(\\p{Extended_Pictographic}|\\p{Emoji_Component})+$`;
+function emoji() {
+	return new RegExp(_emoji$1, "u");
+}
+const ipv4 = /^(?:(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])$/;
+const ipv6 = /^(([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:))$/;
+const cidrv4 = /^((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\/([0-9]|[1-2][0-9]|3[0-2])$/;
+const cidrv6 = /^(([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|::|([0-9a-fA-F]{1,4})?::([0-9a-fA-F]{1,4}:?){0,6})\/(12[0-8]|1[01][0-9]|[1-9]?[0-9])$/;
+const base64 = /^$|^(?:[0-9a-zA-Z+/]{4})*(?:(?:[0-9a-zA-Z+/]{2}==)|(?:[0-9a-zA-Z+/]{3}=))?$/;
+const base64url = /^[A-Za-z0-9_-]*$/;
+const e164 = /^\+[1-9]\d{6,14}$/;
+const dateSource = `(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))`;
+const date$1 = /* @__PURE__ */ new RegExp(`^${dateSource}$`);
+function timeSource(args) {
+	const hhmm = `(?:[01]\\d|2[0-3]):[0-5]\\d`;
+	return typeof args.precision === "number" ? args.precision === -1 ? `${hhmm}` : args.precision === 0 ? `${hhmm}:[0-5]\\d` : `${hhmm}:[0-5]\\d\\.\\d{${args.precision}}` : `${hhmm}(?::[0-5]\\d(?:\\.\\d+)?)?`;
+}
+function time$1(args) {
+	return new RegExp(`^${timeSource(args)}$`);
+}
+function datetime$1(args) {
+	const time = timeSource({ precision: args.precision });
+	const opts = ["Z"];
+	if (args.local) opts.push("");
+	if (args.offset) opts.push(`([+-](?:[01]\\d|2[0-3]):[0-5]\\d)`);
+	const timeRegex = `${time}(?:${opts.join("|")})`;
+	return new RegExp(`^${dateSource}T(?:${timeRegex})$`);
+}
+const string$1 = (params) => {
+	const regex = params ? `[\\s\\S]{${params?.minimum ?? 0},${params?.maximum ?? ""}}` : `[\\s\\S]*`;
+	return new RegExp(`^${regex}$`);
+};
+const number = /^-?\d+(?:\.\d+)?$/;
+const boolean$1 = /^(?:true|false)$/i;
+const lowercase = /^[^A-Z]*$/;
+const uppercase = /^[^a-z]*$/;
+
+//#endregion
+//#region node_modules/zod/v4/core/checks.js
+const $ZodCheck = /* @__PURE__ */ $constructor("$ZodCheck", (inst, def) => {
+	var _a;
+	inst._zod ?? (inst._zod = {});
+	inst._zod.def = def;
+	(_a = inst._zod).onattach ?? (_a.onattach = []);
+});
+const $ZodCheckMaxLength = /* @__PURE__ */ $constructor("$ZodCheckMaxLength", (inst, def) => {
+	var _a;
+	$ZodCheck.init(inst, def);
+	(_a = inst._zod.def).when ?? (_a.when = (payload) => {
+		const val = payload.value;
+		return !nullish(val) && val.length !== void 0;
+	});
+	inst._zod.onattach.push((inst) => {
+		const curr = inst._zod.bag.maximum ?? Number.POSITIVE_INFINITY;
+		if (def.maximum < curr) inst._zod.bag.maximum = def.maximum;
+	});
+	inst._zod.check = (payload) => {
+		const input = payload.value;
+		if (input.length <= def.maximum) return;
+		const origin = getLengthableOrigin(input);
+		payload.issues.push({
+			origin,
+			code: "too_big",
+			maximum: def.maximum,
+			inclusive: true,
+			input,
+			inst,
+			continue: !def.abort
+		});
+	};
+});
+const $ZodCheckMinLength = /* @__PURE__ */ $constructor("$ZodCheckMinLength", (inst, def) => {
+	var _a;
+	$ZodCheck.init(inst, def);
+	(_a = inst._zod.def).when ?? (_a.when = (payload) => {
+		const val = payload.value;
+		return !nullish(val) && val.length !== void 0;
+	});
+	inst._zod.onattach.push((inst) => {
+		const curr = inst._zod.bag.minimum ?? Number.NEGATIVE_INFINITY;
+		if (def.minimum > curr) inst._zod.bag.minimum = def.minimum;
+	});
+	inst._zod.check = (payload) => {
+		const input = payload.value;
+		if (input.length >= def.minimum) return;
+		const origin = getLengthableOrigin(input);
+		payload.issues.push({
+			origin,
+			code: "too_small",
+			minimum: def.minimum,
+			inclusive: true,
+			input,
+			inst,
+			continue: !def.abort
+		});
+	};
+});
+const $ZodCheckLengthEquals = /* @__PURE__ */ $constructor("$ZodCheckLengthEquals", (inst, def) => {
+	var _a;
+	$ZodCheck.init(inst, def);
+	(_a = inst._zod.def).when ?? (_a.when = (payload) => {
+		const val = payload.value;
+		return !nullish(val) && val.length !== void 0;
+	});
+	inst._zod.onattach.push((inst) => {
+		const bag = inst._zod.bag;
+		bag.minimum = def.length;
+		bag.maximum = def.length;
+		bag.length = def.length;
+	});
+	inst._zod.check = (payload) => {
+		const input = payload.value;
+		const length = input.length;
+		if (length === def.length) return;
+		const origin = getLengthableOrigin(input);
+		const tooBig = length > def.length;
+		payload.issues.push({
+			origin,
+			...tooBig ? {
+				code: "too_big",
+				maximum: def.length
+			} : {
+				code: "too_small",
+				minimum: def.length
+			},
+			inclusive: true,
+			exact: true,
+			input: payload.value,
+			inst,
+			continue: !def.abort
+		});
+	};
+});
+const $ZodCheckStringFormat = /* @__PURE__ */ $constructor("$ZodCheckStringFormat", (inst, def) => {
+	var _a, _b;
+	$ZodCheck.init(inst, def);
+	inst._zod.onattach.push((inst) => {
+		const bag = inst._zod.bag;
+		bag.format = def.format;
+		if (def.pattern) {
+			bag.patterns ?? (bag.patterns = /* @__PURE__ */ new Set());
+			bag.patterns.add(def.pattern);
+		}
+	});
+	if (def.pattern) (_a = inst._zod).check ?? (_a.check = (payload) => {
+		def.pattern.lastIndex = 0;
+		if (def.pattern.test(payload.value)) return;
+		payload.issues.push({
+			origin: "string",
+			code: "invalid_format",
+			format: def.format,
+			input: payload.value,
+			...def.pattern ? { pattern: def.pattern.toString() } : {},
+			inst,
+			continue: !def.abort
+		});
+	});
+	else (_b = inst._zod).check ?? (_b.check = () => {});
+});
+const $ZodCheckRegex = /* @__PURE__ */ $constructor("$ZodCheckRegex", (inst, def) => {
+	$ZodCheckStringFormat.init(inst, def);
+	inst._zod.check = (payload) => {
+		def.pattern.lastIndex = 0;
+		if (def.pattern.test(payload.value)) return;
+		payload.issues.push({
+			origin: "string",
+			code: "invalid_format",
+			format: "regex",
+			input: payload.value,
+			pattern: def.pattern.toString(),
+			inst,
+			continue: !def.abort
+		});
+	};
+});
+const $ZodCheckLowerCase = /* @__PURE__ */ $constructor("$ZodCheckLowerCase", (inst, def) => {
+	def.pattern ?? (def.pattern = lowercase);
+	$ZodCheckStringFormat.init(inst, def);
+});
+const $ZodCheckUpperCase = /* @__PURE__ */ $constructor("$ZodCheckUpperCase", (inst, def) => {
+	def.pattern ?? (def.pattern = uppercase);
+	$ZodCheckStringFormat.init(inst, def);
+});
+const $ZodCheckIncludes = /* @__PURE__ */ $constructor("$ZodCheckIncludes", (inst, def) => {
+	$ZodCheck.init(inst, def);
+	const escapedRegex = escapeRegex(def.includes);
+	const pattern = new RegExp(typeof def.position === "number" ? `^.{${def.position}}${escapedRegex}` : escapedRegex);
+	def.pattern = pattern;
+	inst._zod.onattach.push((inst) => {
+		const bag = inst._zod.bag;
+		bag.patterns ?? (bag.patterns = /* @__PURE__ */ new Set());
+		bag.patterns.add(pattern);
+	});
+	inst._zod.check = (payload) => {
+		if (payload.value.includes(def.includes, def.position)) return;
+		payload.issues.push({
+			origin: "string",
+			code: "invalid_format",
+			format: "includes",
+			includes: def.includes,
+			input: payload.value,
+			inst,
+			continue: !def.abort
+		});
+	};
+});
+const $ZodCheckStartsWith = /* @__PURE__ */ $constructor("$ZodCheckStartsWith", (inst, def) => {
+	$ZodCheck.init(inst, def);
+	const pattern = new RegExp(`^${escapeRegex(def.prefix)}.*`);
+	def.pattern ?? (def.pattern = pattern);
+	inst._zod.onattach.push((inst) => {
+		const bag = inst._zod.bag;
+		bag.patterns ?? (bag.patterns = /* @__PURE__ */ new Set());
+		bag.patterns.add(pattern);
+	});
+	inst._zod.check = (payload) => {
+		if (payload.value.startsWith(def.prefix)) return;
+		payload.issues.push({
+			origin: "string",
+			code: "invalid_format",
+			format: "starts_with",
+			prefix: def.prefix,
+			input: payload.value,
+			inst,
+			continue: !def.abort
+		});
+	};
+});
+const $ZodCheckEndsWith = /* @__PURE__ */ $constructor("$ZodCheckEndsWith", (inst, def) => {
+	$ZodCheck.init(inst, def);
+	const pattern = new RegExp(`.*${escapeRegex(def.suffix)}$`);
+	def.pattern ?? (def.pattern = pattern);
+	inst._zod.onattach.push((inst) => {
+		const bag = inst._zod.bag;
+		bag.patterns ?? (bag.patterns = /* @__PURE__ */ new Set());
+		bag.patterns.add(pattern);
+	});
+	inst._zod.check = (payload) => {
+		if (payload.value.endsWith(def.suffix)) return;
+		payload.issues.push({
+			origin: "string",
+			code: "invalid_format",
+			format: "ends_with",
+			suffix: def.suffix,
+			input: payload.value,
+			inst,
+			continue: !def.abort
+		});
+	};
+});
+const $ZodCheckOverwrite = /* @__PURE__ */ $constructor("$ZodCheckOverwrite", (inst, def) => {
+	$ZodCheck.init(inst, def);
+	inst._zod.check = (payload) => {
+		payload.value = def.tx(payload.value);
+	};
+});
+
+//#endregion
+//#region node_modules/zod/v4/core/doc.js
+var Doc = class {
+	constructor(args = []) {
+		this.content = [];
+		this.indent = 0;
+		if (this) this.args = args;
+	}
+	indented(fn) {
+		this.indent += 1;
+		fn(this);
+		this.indent -= 1;
+	}
+	write(arg) {
+		if (typeof arg === "function") {
+			arg(this, { execution: "sync" });
+			arg(this, { execution: "async" });
+			return;
+		}
+		const lines = arg.split("\n").filter((x) => x);
+		const minIndent = Math.min(...lines.map((x) => x.length - x.trimStart().length));
+		const dedented = lines.map((x) => x.slice(minIndent)).map((x) => " ".repeat(this.indent * 2) + x);
+		for (const line of dedented) this.content.push(line);
+	}
+	compile() {
+		const F = Function;
+		const args = this?.args;
+		const lines = [...(this?.content ?? [``]).map((x) => `  ${x}`)];
+		return new F(...args, lines.join("\n"));
+	}
+};
+
+//#endregion
+//#region node_modules/zod/v4/core/versions.js
+const version = {
+	major: 4,
+	minor: 3,
+	patch: 6
+};
+
+//#endregion
+//#region node_modules/zod/v4/core/schemas.js
+const $ZodType = /* @__PURE__ */ $constructor("$ZodType", (inst, def) => {
+	var _a;
+	inst ?? (inst = {});
+	inst._zod.def = def;
+	inst._zod.bag = inst._zod.bag || {};
+	inst._zod.version = version;
+	const checks = [...inst._zod.def.checks ?? []];
+	if (inst._zod.traits.has("$ZodCheck")) checks.unshift(inst);
+	for (const ch of checks) for (const fn of ch._zod.onattach) fn(inst);
+	if (checks.length === 0) {
+		(_a = inst._zod).deferred ?? (_a.deferred = []);
+		inst._zod.deferred?.push(() => {
+			inst._zod.run = inst._zod.parse;
+		});
+	} else {
+		const runChecks = (payload, checks, ctx) => {
+			let isAborted = aborted(payload);
+			let asyncResult;
+			for (const ch of checks) {
+				if (ch._zod.def.when) {
+					if (!ch._zod.def.when(payload)) continue;
+				} else if (isAborted) continue;
+				const currLen = payload.issues.length;
+				const _ = ch._zod.check(payload);
+				if (_ instanceof Promise && ctx?.async === false) throw new $ZodAsyncError();
+				if (asyncResult || _ instanceof Promise) asyncResult = (asyncResult ?? Promise.resolve()).then(async () => {
+					await _;
+					if (payload.issues.length === currLen) return;
+					if (!isAborted) isAborted = aborted(payload, currLen);
+				});
+				else {
+					if (payload.issues.length === currLen) continue;
+					if (!isAborted) isAborted = aborted(payload, currLen);
+				}
+			}
+			if (asyncResult) return asyncResult.then(() => {
+				return payload;
+			});
+			return payload;
+		};
+		const handleCanaryResult = (canary, payload, ctx) => {
+			if (aborted(canary)) {
+				canary.aborted = true;
+				return canary;
+			}
+			const checkResult = runChecks(payload, checks, ctx);
+			if (checkResult instanceof Promise) {
+				if (ctx.async === false) throw new $ZodAsyncError();
+				return checkResult.then((checkResult) => inst._zod.parse(checkResult, ctx));
+			}
+			return inst._zod.parse(checkResult, ctx);
+		};
+		inst._zod.run = (payload, ctx) => {
+			if (ctx.skipChecks) return inst._zod.parse(payload, ctx);
+			if (ctx.direction === "backward") {
+				const canary = inst._zod.parse({
+					value: payload.value,
+					issues: []
+				}, {
+					...ctx,
+					skipChecks: true
+				});
+				if (canary instanceof Promise) return canary.then((canary) => {
+					return handleCanaryResult(canary, payload, ctx);
+				});
+				return handleCanaryResult(canary, payload, ctx);
+			}
+			const result = inst._zod.parse(payload, ctx);
+			if (result instanceof Promise) {
+				if (ctx.async === false) throw new $ZodAsyncError();
+				return result.then((result) => runChecks(result, checks, ctx));
+			}
+			return runChecks(result, checks, ctx);
+		};
+	}
+	defineLazy(inst, "~standard", () => ({
+		validate: (value) => {
+			try {
+				const r = safeParse$2(inst, value);
+				return r.success ? { value: r.data } : { issues: r.error?.issues };
+			} catch (_) {
+				return safeParseAsync$1(inst, value).then((r) => r.success ? { value: r.data } : { issues: r.error?.issues });
+			}
+		},
+		vendor: "zod",
+		version: 1
+	}));
+});
+const $ZodString = /* @__PURE__ */ $constructor("$ZodString", (inst, def) => {
+	$ZodType.init(inst, def);
+	inst._zod.pattern = [...inst?._zod.bag?.patterns ?? []].pop() ?? string$1(inst._zod.bag);
+	inst._zod.parse = (payload, _) => {
+		if (def.coerce) try {
+			payload.value = String(payload.value);
+		} catch (_) {}
+		if (typeof payload.value === "string") return payload;
+		payload.issues.push({
+			expected: "string",
+			code: "invalid_type",
+			input: payload.value,
+			inst
+		});
+		return payload;
+	};
+});
+const $ZodStringFormat = /* @__PURE__ */ $constructor("$ZodStringFormat", (inst, def) => {
+	$ZodCheckStringFormat.init(inst, def);
+	$ZodString.init(inst, def);
+});
+const $ZodGUID = /* @__PURE__ */ $constructor("$ZodGUID", (inst, def) => {
+	def.pattern ?? (def.pattern = guid);
+	$ZodStringFormat.init(inst, def);
+});
+const $ZodUUID = /* @__PURE__ */ $constructor("$ZodUUID", (inst, def) => {
+	if (def.version) {
+		const v = {
+			v1: 1,
+			v2: 2,
+			v3: 3,
+			v4: 4,
+			v5: 5,
+			v6: 6,
+			v7: 7,
+			v8: 8
+		}[def.version];
+		if (v === void 0) throw new Error(`Invalid UUID version: "${def.version}"`);
+		def.pattern ?? (def.pattern = uuid(v));
+	} else def.pattern ?? (def.pattern = uuid());
+	$ZodStringFormat.init(inst, def);
+});
+const $ZodEmail = /* @__PURE__ */ $constructor("$ZodEmail", (inst, def) => {
+	def.pattern ?? (def.pattern = email);
+	$ZodStringFormat.init(inst, def);
+});
+const $ZodURL = /* @__PURE__ */ $constructor("$ZodURL", (inst, def) => {
+	$ZodStringFormat.init(inst, def);
+	inst._zod.check = (payload) => {
+		try {
+			const trimmed = payload.value.trim();
+			const url = new URL(trimmed);
+			if (def.hostname) {
+				def.hostname.lastIndex = 0;
+				if (!def.hostname.test(url.hostname)) payload.issues.push({
+					code: "invalid_format",
+					format: "url",
+					note: "Invalid hostname",
+					pattern: def.hostname.source,
+					input: payload.value,
+					inst,
+					continue: !def.abort
+				});
+			}
+			if (def.protocol) {
+				def.protocol.lastIndex = 0;
+				if (!def.protocol.test(url.protocol.endsWith(":") ? url.protocol.slice(0, -1) : url.protocol)) payload.issues.push({
+					code: "invalid_format",
+					format: "url",
+					note: "Invalid protocol",
+					pattern: def.protocol.source,
+					input: payload.value,
+					inst,
+					continue: !def.abort
+				});
+			}
+			if (def.normalize) payload.value = url.href;
+			else payload.value = trimmed;
+			return;
+		} catch (_) {
+			payload.issues.push({
+				code: "invalid_format",
+				format: "url",
+				input: payload.value,
+				inst,
+				continue: !def.abort
+			});
+		}
+	};
+});
+const $ZodEmoji = /* @__PURE__ */ $constructor("$ZodEmoji", (inst, def) => {
+	def.pattern ?? (def.pattern = emoji());
+	$ZodStringFormat.init(inst, def);
+});
+const $ZodNanoID = /* @__PURE__ */ $constructor("$ZodNanoID", (inst, def) => {
+	def.pattern ?? (def.pattern = nanoid);
+	$ZodStringFormat.init(inst, def);
+});
+const $ZodCUID = /* @__PURE__ */ $constructor("$ZodCUID", (inst, def) => {
+	def.pattern ?? (def.pattern = cuid);
+	$ZodStringFormat.init(inst, def);
+});
+const $ZodCUID2 = /* @__PURE__ */ $constructor("$ZodCUID2", (inst, def) => {
+	def.pattern ?? (def.pattern = cuid2);
+	$ZodStringFormat.init(inst, def);
+});
+const $ZodULID = /* @__PURE__ */ $constructor("$ZodULID", (inst, def) => {
+	def.pattern ?? (def.pattern = ulid);
+	$ZodStringFormat.init(inst, def);
+});
+const $ZodXID = /* @__PURE__ */ $constructor("$ZodXID", (inst, def) => {
+	def.pattern ?? (def.pattern = xid);
+	$ZodStringFormat.init(inst, def);
+});
+const $ZodKSUID = /* @__PURE__ */ $constructor("$ZodKSUID", (inst, def) => {
+	def.pattern ?? (def.pattern = ksuid);
+	$ZodStringFormat.init(inst, def);
+});
+const $ZodISODateTime = /* @__PURE__ */ $constructor("$ZodISODateTime", (inst, def) => {
+	def.pattern ?? (def.pattern = datetime$1(def));
+	$ZodStringFormat.init(inst, def);
+});
+const $ZodISODate = /* @__PURE__ */ $constructor("$ZodISODate", (inst, def) => {
+	def.pattern ?? (def.pattern = date$1);
+	$ZodStringFormat.init(inst, def);
+});
+const $ZodISOTime = /* @__PURE__ */ $constructor("$ZodISOTime", (inst, def) => {
+	def.pattern ?? (def.pattern = time$1(def));
+	$ZodStringFormat.init(inst, def);
+});
+const $ZodISODuration = /* @__PURE__ */ $constructor("$ZodISODuration", (inst, def) => {
+	def.pattern ?? (def.pattern = duration$1);
+	$ZodStringFormat.init(inst, def);
+});
+const $ZodIPv4 = /* @__PURE__ */ $constructor("$ZodIPv4", (inst, def) => {
+	def.pattern ?? (def.pattern = ipv4);
+	$ZodStringFormat.init(inst, def);
+	inst._zod.bag.format = `ipv4`;
+});
+const $ZodIPv6 = /* @__PURE__ */ $constructor("$ZodIPv6", (inst, def) => {
+	def.pattern ?? (def.pattern = ipv6);
+	$ZodStringFormat.init(inst, def);
+	inst._zod.bag.format = `ipv6`;
+	inst._zod.check = (payload) => {
+		try {
+			new URL(`http://[${payload.value}]`);
+		} catch {
+			payload.issues.push({
+				code: "invalid_format",
+				format: "ipv6",
+				input: payload.value,
+				inst,
+				continue: !def.abort
+			});
+		}
+	};
+});
+const $ZodCIDRv4 = /* @__PURE__ */ $constructor("$ZodCIDRv4", (inst, def) => {
+	def.pattern ?? (def.pattern = cidrv4);
+	$ZodStringFormat.init(inst, def);
+});
+const $ZodCIDRv6 = /* @__PURE__ */ $constructor("$ZodCIDRv6", (inst, def) => {
+	def.pattern ?? (def.pattern = cidrv6);
+	$ZodStringFormat.init(inst, def);
+	inst._zod.check = (payload) => {
+		const parts = payload.value.split("/");
+		try {
+			if (parts.length !== 2) throw new Error();
+			const [address, prefix] = parts;
+			if (!prefix) throw new Error();
+			const prefixNum = Number(prefix);
+			if (`${prefixNum}` !== prefix) throw new Error();
+			if (prefixNum < 0 || prefixNum > 128) throw new Error();
+			new URL(`http://[${address}]`);
+		} catch {
+			payload.issues.push({
+				code: "invalid_format",
+				format: "cidrv6",
+				input: payload.value,
+				inst,
+				continue: !def.abort
+			});
+		}
+	};
+});
+function isValidBase64(data) {
+	if (data === "") return true;
+	if (data.length % 4 !== 0) return false;
+	try {
+		atob(data);
+		return true;
+	} catch {
+		return false;
+	}
+}
+const $ZodBase64 = /* @__PURE__ */ $constructor("$ZodBase64", (inst, def) => {
+	def.pattern ?? (def.pattern = base64);
+	$ZodStringFormat.init(inst, def);
+	inst._zod.bag.contentEncoding = "base64";
+	inst._zod.check = (payload) => {
+		if (isValidBase64(payload.value)) return;
+		payload.issues.push({
+			code: "invalid_format",
+			format: "base64",
+			input: payload.value,
+			inst,
+			continue: !def.abort
+		});
+	};
+});
+function isValidBase64URL(data) {
+	if (!base64url.test(data)) return false;
+	const base64 = data.replace(/[-_]/g, (c) => c === "-" ? "+" : "/");
+	return isValidBase64(base64.padEnd(Math.ceil(base64.length / 4) * 4, "="));
+}
+const $ZodBase64URL = /* @__PURE__ */ $constructor("$ZodBase64URL", (inst, def) => {
+	def.pattern ?? (def.pattern = base64url);
+	$ZodStringFormat.init(inst, def);
+	inst._zod.bag.contentEncoding = "base64url";
+	inst._zod.check = (payload) => {
+		if (isValidBase64URL(payload.value)) return;
+		payload.issues.push({
+			code: "invalid_format",
+			format: "base64url",
+			input: payload.value,
+			inst,
+			continue: !def.abort
+		});
+	};
+});
+const $ZodE164 = /* @__PURE__ */ $constructor("$ZodE164", (inst, def) => {
+	def.pattern ?? (def.pattern = e164);
+	$ZodStringFormat.init(inst, def);
+});
+function isValidJWT(token, algorithm = null) {
+	try {
+		const tokensParts = token.split(".");
+		if (tokensParts.length !== 3) return false;
+		const [header] = tokensParts;
+		if (!header) return false;
+		const parsedHeader = JSON.parse(atob(header));
+		if ("typ" in parsedHeader && parsedHeader?.typ !== "JWT") return false;
+		if (!parsedHeader.alg) return false;
+		if (algorithm && (!("alg" in parsedHeader) || parsedHeader.alg !== algorithm)) return false;
+		return true;
+	} catch {
+		return false;
+	}
+}
+const $ZodJWT = /* @__PURE__ */ $constructor("$ZodJWT", (inst, def) => {
+	$ZodStringFormat.init(inst, def);
+	inst._zod.check = (payload) => {
+		if (isValidJWT(payload.value, def.alg)) return;
+		payload.issues.push({
+			code: "invalid_format",
+			format: "jwt",
+			input: payload.value,
+			inst,
+			continue: !def.abort
+		});
+	};
+});
+const $ZodBoolean = /* @__PURE__ */ $constructor("$ZodBoolean", (inst, def) => {
+	$ZodType.init(inst, def);
+	inst._zod.pattern = boolean$1;
+	inst._zod.parse = (payload, _ctx) => {
+		if (def.coerce) try {
+			payload.value = Boolean(payload.value);
+		} catch (_) {}
+		const input = payload.value;
+		if (typeof input === "boolean") return payload;
+		payload.issues.push({
+			expected: "boolean",
+			code: "invalid_type",
+			input,
+			inst
+		});
+		return payload;
+	};
+});
+const $ZodUnknown = /* @__PURE__ */ $constructor("$ZodUnknown", (inst, def) => {
+	$ZodType.init(inst, def);
+	inst._zod.parse = (payload) => payload;
+});
+const $ZodNever = /* @__PURE__ */ $constructor("$ZodNever", (inst, def) => {
+	$ZodType.init(inst, def);
+	inst._zod.parse = (payload, _ctx) => {
+		payload.issues.push({
+			expected: "never",
+			code: "invalid_type",
+			input: payload.value,
+			inst
+		});
+		return payload;
+	};
+});
+function handleArrayResult(result, final, index) {
+	if (result.issues.length) final.issues.push(...prefixIssues(index, result.issues));
+	final.value[index] = result.value;
+}
+const $ZodArray = /* @__PURE__ */ $constructor("$ZodArray", (inst, def) => {
+	$ZodType.init(inst, def);
+	inst._zod.parse = (payload, ctx) => {
+		const input = payload.value;
+		if (!Array.isArray(input)) {
+			payload.issues.push({
+				expected: "array",
+				code: "invalid_type",
+				input,
+				inst
+			});
+			return payload;
+		}
+		payload.value = Array(input.length);
+		const proms = [];
+		for (let i = 0; i < input.length; i++) {
+			const item = input[i];
+			const result = def.element._zod.run({
+				value: item,
+				issues: []
+			}, ctx);
+			if (result instanceof Promise) proms.push(result.then((result) => handleArrayResult(result, payload, i)));
+			else handleArrayResult(result, payload, i);
+		}
+		if (proms.length) return Promise.all(proms).then(() => payload);
+		return payload;
+	};
+});
+function handlePropertyResult(result, final, key, input, isOptionalOut) {
+	if (result.issues.length) {
+		if (isOptionalOut && !(key in input)) return;
+		final.issues.push(...prefixIssues(key, result.issues));
+	}
+	if (result.value === void 0) {
+		if (key in input) final.value[key] = void 0;
+	} else final.value[key] = result.value;
+}
+function normalizeDef(def) {
+	const keys = Object.keys(def.shape);
+	for (const k of keys) if (!def.shape?.[k]?._zod?.traits?.has("$ZodType")) throw new Error(`Invalid element at key "${k}": expected a Zod schema`);
+	const okeys = optionalKeys(def.shape);
+	return {
+		...def,
+		keys,
+		keySet: new Set(keys),
+		numKeys: keys.length,
+		optionalKeys: new Set(okeys)
+	};
+}
+function handleCatchall(proms, input, payload, ctx, def, inst) {
+	const unrecognized = [];
+	const keySet = def.keySet;
+	const _catchall = def.catchall._zod;
+	const t = _catchall.def.type;
+	const isOptionalOut = _catchall.optout === "optional";
+	for (const key in input) {
+		if (keySet.has(key)) continue;
+		if (t === "never") {
+			unrecognized.push(key);
+			continue;
+		}
+		const r = _catchall.run({
+			value: input[key],
+			issues: []
+		}, ctx);
+		if (r instanceof Promise) proms.push(r.then((r) => handlePropertyResult(r, payload, key, input, isOptionalOut)));
+		else handlePropertyResult(r, payload, key, input, isOptionalOut);
+	}
+	if (unrecognized.length) payload.issues.push({
+		code: "unrecognized_keys",
+		keys: unrecognized,
+		input,
+		inst
+	});
+	if (!proms.length) return payload;
+	return Promise.all(proms).then(() => {
+		return payload;
+	});
+}
+const $ZodObject = /* @__PURE__ */ $constructor("$ZodObject", (inst, def) => {
+	$ZodType.init(inst, def);
+	if (!Object.getOwnPropertyDescriptor(def, "shape")?.get) {
+		const sh = def.shape;
+		Object.defineProperty(def, "shape", { get: () => {
+			const newSh = { ...sh };
+			Object.defineProperty(def, "shape", { value: newSh });
+			return newSh;
+		} });
+	}
+	const _normalized = cached(() => normalizeDef(def));
+	defineLazy(inst._zod, "propValues", () => {
+		const shape = def.shape;
+		const propValues = {};
+		for (const key in shape) {
+			const field = shape[key]._zod;
+			if (field.values) {
+				propValues[key] ?? (propValues[key] = /* @__PURE__ */ new Set());
+				for (const v of field.values) propValues[key].add(v);
+			}
+		}
+		return propValues;
+	});
+	const isObject$2 = isObject;
+	const catchall = def.catchall;
+	let value;
+	inst._zod.parse = (payload, ctx) => {
+		value ?? (value = _normalized.value);
+		const input = payload.value;
+		if (!isObject$2(input)) {
+			payload.issues.push({
+				expected: "object",
+				code: "invalid_type",
+				input,
+				inst
+			});
+			return payload;
+		}
+		payload.value = {};
+		const proms = [];
+		const shape = value.shape;
+		for (const key of value.keys) {
+			const el = shape[key];
+			const isOptionalOut = el._zod.optout === "optional";
+			const r = el._zod.run({
+				value: input[key],
+				issues: []
+			}, ctx);
+			if (r instanceof Promise) proms.push(r.then((r) => handlePropertyResult(r, payload, key, input, isOptionalOut)));
+			else handlePropertyResult(r, payload, key, input, isOptionalOut);
+		}
+		if (!catchall) return proms.length ? Promise.all(proms).then(() => payload) : payload;
+		return handleCatchall(proms, input, payload, ctx, _normalized.value, inst);
+	};
+});
+const $ZodObjectJIT = /* @__PURE__ */ $constructor("$ZodObjectJIT", (inst, def) => {
+	$ZodObject.init(inst, def);
+	const superParse = inst._zod.parse;
+	const _normalized = cached(() => normalizeDef(def));
+	const generateFastpass = (shape) => {
+		const doc = new Doc([
+			"shape",
+			"payload",
+			"ctx"
+		]);
+		const normalized = _normalized.value;
+		const parseStr = (key) => {
+			const k = esc(key);
+			return `shape[${k}]._zod.run({ value: input[${k}], issues: [] }, ctx)`;
+		};
+		doc.write(`const input = payload.value;`);
+		const ids = Object.create(null);
+		let counter = 0;
+		for (const key of normalized.keys) ids[key] = `key_${counter++}`;
+		doc.write(`const newResult = {};`);
+		for (const key of normalized.keys) {
+			const id = ids[key];
+			const k = esc(key);
+			const isOptionalOut = shape[key]?._zod?.optout === "optional";
+			doc.write(`const ${id} = ${parseStr(key)};`);
+			if (isOptionalOut) doc.write(`
+        if (${id}.issues.length) {
+          if (${k} in input) {
+            payload.issues = payload.issues.concat(${id}.issues.map(iss => ({
+              ...iss,
+              path: iss.path ? [${k}, ...iss.path] : [${k}]
+            })));
+          }
+        }
+        
+        if (${id}.value === undefined) {
+          if (${k} in input) {
+            newResult[${k}] = undefined;
+          }
+        } else {
+          newResult[${k}] = ${id}.value;
+        }
+        
+      `);
+			else doc.write(`
+        if (${id}.issues.length) {
+          payload.issues = payload.issues.concat(${id}.issues.map(iss => ({
+            ...iss,
+            path: iss.path ? [${k}, ...iss.path] : [${k}]
+          })));
+        }
+        
+        if (${id}.value === undefined) {
+          if (${k} in input) {
+            newResult[${k}] = undefined;
+          }
+        } else {
+          newResult[${k}] = ${id}.value;
+        }
+        
+      `);
+		}
+		doc.write(`payload.value = newResult;`);
+		doc.write(`return payload;`);
+		const fn = doc.compile();
+		return (payload, ctx) => fn(shape, payload, ctx);
+	};
+	let fastpass;
+	const isObject$1 = isObject;
+	const jit = !globalConfig.jitless;
+	const allowsEval$1 = allowsEval;
+	const fastEnabled = jit && allowsEval$1.value;
+	const catchall = def.catchall;
+	let value;
+	inst._zod.parse = (payload, ctx) => {
+		value ?? (value = _normalized.value);
+		const input = payload.value;
+		if (!isObject$1(input)) {
+			payload.issues.push({
+				expected: "object",
+				code: "invalid_type",
+				input,
+				inst
+			});
+			return payload;
+		}
+		if (jit && fastEnabled && ctx?.async === false && ctx.jitless !== true) {
+			if (!fastpass) fastpass = generateFastpass(def.shape);
+			payload = fastpass(payload, ctx);
+			if (!catchall) return payload;
+			return handleCatchall([], input, payload, ctx, value, inst);
+		}
+		return superParse(payload, ctx);
+	};
+});
+function handleUnionResults(results, final, inst, ctx) {
+	for (const result of results) if (result.issues.length === 0) {
+		final.value = result.value;
+		return final;
+	}
+	const nonaborted = results.filter((r) => !aborted(r));
+	if (nonaborted.length === 1) {
+		final.value = nonaborted[0].value;
+		return nonaborted[0];
+	}
+	final.issues.push({
+		code: "invalid_union",
+		input: final.value,
+		inst,
+		errors: results.map((result) => result.issues.map((iss) => finalizeIssue(iss, ctx, config())))
+	});
+	return final;
+}
+const $ZodUnion = /* @__PURE__ */ $constructor("$ZodUnion", (inst, def) => {
+	$ZodType.init(inst, def);
+	defineLazy(inst._zod, "optin", () => def.options.some((o) => o._zod.optin === "optional") ? "optional" : void 0);
+	defineLazy(inst._zod, "optout", () => def.options.some((o) => o._zod.optout === "optional") ? "optional" : void 0);
+	defineLazy(inst._zod, "values", () => {
+		if (def.options.every((o) => o._zod.values)) return new Set(def.options.flatMap((option) => Array.from(option._zod.values)));
+	});
+	defineLazy(inst._zod, "pattern", () => {
+		if (def.options.every((o) => o._zod.pattern)) {
+			const patterns = def.options.map((o) => o._zod.pattern);
+			return new RegExp(`^(${patterns.map((p) => cleanRegex(p.source)).join("|")})$`);
+		}
+	});
+	const single = def.options.length === 1;
+	const first = def.options[0]._zod.run;
+	inst._zod.parse = (payload, ctx) => {
+		if (single) return first(payload, ctx);
+		let async = false;
+		const results = [];
+		for (const option of def.options) {
+			const result = option._zod.run({
+				value: payload.value,
+				issues: []
+			}, ctx);
+			if (result instanceof Promise) {
+				results.push(result);
+				async = true;
+			} else {
+				if (result.issues.length === 0) return result;
+				results.push(result);
+			}
+		}
+		if (!async) return handleUnionResults(results, payload, inst, ctx);
+		return Promise.all(results).then((results) => {
+			return handleUnionResults(results, payload, inst, ctx);
+		});
+	};
+});
+const $ZodIntersection = /* @__PURE__ */ $constructor("$ZodIntersection", (inst, def) => {
+	$ZodType.init(inst, def);
+	inst._zod.parse = (payload, ctx) => {
+		const input = payload.value;
+		const left = def.left._zod.run({
+			value: input,
+			issues: []
+		}, ctx);
+		const right = def.right._zod.run({
+			value: input,
+			issues: []
+		}, ctx);
+		if (left instanceof Promise || right instanceof Promise) return Promise.all([left, right]).then(([left, right]) => {
+			return handleIntersectionResults(payload, left, right);
+		});
+		return handleIntersectionResults(payload, left, right);
+	};
+});
+function mergeValues(a, b) {
+	if (a === b) return {
+		valid: true,
+		data: a
+	};
+	if (a instanceof Date && b instanceof Date && +a === +b) return {
+		valid: true,
+		data: a
+	};
+	if (isPlainObject$2(a) && isPlainObject$2(b)) {
+		const bKeys = Object.keys(b);
+		const sharedKeys = Object.keys(a).filter((key) => bKeys.indexOf(key) !== -1);
+		const newObj = {
+			...a,
+			...b
+		};
+		for (const key of sharedKeys) {
+			const sharedValue = mergeValues(a[key], b[key]);
+			if (!sharedValue.valid) return {
+				valid: false,
+				mergeErrorPath: [key, ...sharedValue.mergeErrorPath]
+			};
+			newObj[key] = sharedValue.data;
+		}
+		return {
+			valid: true,
+			data: newObj
+		};
+	}
+	if (Array.isArray(a) && Array.isArray(b)) {
+		if (a.length !== b.length) return {
+			valid: false,
+			mergeErrorPath: []
+		};
+		const newArray = [];
+		for (let index = 0; index < a.length; index++) {
+			const itemA = a[index];
+			const itemB = b[index];
+			const sharedValue = mergeValues(itemA, itemB);
+			if (!sharedValue.valid) return {
+				valid: false,
+				mergeErrorPath: [index, ...sharedValue.mergeErrorPath]
+			};
+			newArray.push(sharedValue.data);
+		}
+		return {
+			valid: true,
+			data: newArray
+		};
+	}
+	return {
+		valid: false,
+		mergeErrorPath: []
+	};
+}
+function handleIntersectionResults(result, left, right) {
+	const unrecKeys = /* @__PURE__ */ new Map();
+	let unrecIssue;
+	for (const iss of left.issues) if (iss.code === "unrecognized_keys") {
+		unrecIssue ?? (unrecIssue = iss);
+		for (const k of iss.keys) {
+			if (!unrecKeys.has(k)) unrecKeys.set(k, {});
+			unrecKeys.get(k).l = true;
+		}
+	} else result.issues.push(iss);
+	for (const iss of right.issues) if (iss.code === "unrecognized_keys") for (const k of iss.keys) {
+		if (!unrecKeys.has(k)) unrecKeys.set(k, {});
+		unrecKeys.get(k).r = true;
+	}
+	else result.issues.push(iss);
+	const bothKeys = [...unrecKeys].filter(([, f]) => f.l && f.r).map(([k]) => k);
+	if (bothKeys.length && unrecIssue) result.issues.push({
+		...unrecIssue,
+		keys: bothKeys
+	});
+	if (aborted(result)) return result;
+	const merged = mergeValues(left.value, right.value);
+	if (!merged.valid) throw new Error(`Unmergable intersection. Error path: ${JSON.stringify(merged.mergeErrorPath)}`);
+	result.value = merged.data;
+	return result;
+}
+const $ZodRecord = /* @__PURE__ */ $constructor("$ZodRecord", (inst, def) => {
+	$ZodType.init(inst, def);
+	inst._zod.parse = (payload, ctx) => {
+		const input = payload.value;
+		if (!isPlainObject$2(input)) {
+			payload.issues.push({
+				expected: "record",
+				code: "invalid_type",
+				input,
+				inst
+			});
+			return payload;
+		}
+		const proms = [];
+		const values = def.keyType._zod.values;
+		if (values) {
+			payload.value = {};
+			const recordKeys = /* @__PURE__ */ new Set();
+			for (const key of values) if (typeof key === "string" || typeof key === "number" || typeof key === "symbol") {
+				recordKeys.add(typeof key === "number" ? key.toString() : key);
+				const result = def.valueType._zod.run({
+					value: input[key],
+					issues: []
+				}, ctx);
+				if (result instanceof Promise) proms.push(result.then((result) => {
+					if (result.issues.length) payload.issues.push(...prefixIssues(key, result.issues));
+					payload.value[key] = result.value;
+				}));
+				else {
+					if (result.issues.length) payload.issues.push(...prefixIssues(key, result.issues));
+					payload.value[key] = result.value;
+				}
+			}
+			let unrecognized;
+			for (const key in input) if (!recordKeys.has(key)) {
+				unrecognized = unrecognized ?? [];
+				unrecognized.push(key);
+			}
+			if (unrecognized && unrecognized.length > 0) payload.issues.push({
+				code: "unrecognized_keys",
+				input,
+				inst,
+				keys: unrecognized
+			});
+		} else {
+			payload.value = {};
+			for (const key of Reflect.ownKeys(input)) {
+				if (key === "__proto__") continue;
+				let keyResult = def.keyType._zod.run({
+					value: key,
+					issues: []
+				}, ctx);
+				if (keyResult instanceof Promise) throw new Error("Async schemas not supported in object keys currently");
+				if (typeof key === "string" && number.test(key) && keyResult.issues.length) {
+					const retryResult = def.keyType._zod.run({
+						value: Number(key),
+						issues: []
+					}, ctx);
+					if (retryResult instanceof Promise) throw new Error("Async schemas not supported in object keys currently");
+					if (retryResult.issues.length === 0) keyResult = retryResult;
+				}
+				if (keyResult.issues.length) {
+					if (def.mode === "loose") payload.value[key] = input[key];
+					else payload.issues.push({
+						code: "invalid_key",
+						origin: "record",
+						issues: keyResult.issues.map((iss) => finalizeIssue(iss, ctx, config())),
+						input: key,
+						path: [key],
+						inst
+					});
+					continue;
+				}
+				const result = def.valueType._zod.run({
+					value: input[key],
+					issues: []
+				}, ctx);
+				if (result instanceof Promise) proms.push(result.then((result) => {
+					if (result.issues.length) payload.issues.push(...prefixIssues(key, result.issues));
+					payload.value[keyResult.value] = result.value;
+				}));
+				else {
+					if (result.issues.length) payload.issues.push(...prefixIssues(key, result.issues));
+					payload.value[keyResult.value] = result.value;
+				}
+			}
+		}
+		if (proms.length) return Promise.all(proms).then(() => payload);
+		return payload;
+	};
+});
+const $ZodEnum = /* @__PURE__ */ $constructor("$ZodEnum", (inst, def) => {
+	$ZodType.init(inst, def);
+	const values = getEnumValues(def.entries);
+	const valuesSet = new Set(values);
+	inst._zod.values = valuesSet;
+	inst._zod.pattern = new RegExp(`^(${values.filter((k) => propertyKeyTypes.has(typeof k)).map((o) => typeof o === "string" ? escapeRegex(o) : o.toString()).join("|")})$`);
+	inst._zod.parse = (payload, _ctx) => {
+		const input = payload.value;
+		if (valuesSet.has(input)) return payload;
+		payload.issues.push({
+			code: "invalid_value",
+			values,
+			input,
+			inst
+		});
+		return payload;
+	};
+});
+const $ZodTransform = /* @__PURE__ */ $constructor("$ZodTransform", (inst, def) => {
+	$ZodType.init(inst, def);
+	inst._zod.parse = (payload, ctx) => {
+		if (ctx.direction === "backward") throw new $ZodEncodeError(inst.constructor.name);
+		const _out = def.transform(payload.value, payload);
+		if (ctx.async) return (_out instanceof Promise ? _out : Promise.resolve(_out)).then((output) => {
+			payload.value = output;
+			return payload;
+		});
+		if (_out instanceof Promise) throw new $ZodAsyncError();
+		payload.value = _out;
+		return payload;
+	};
+});
+function handleOptionalResult(result, input) {
+	if (result.issues.length && input === void 0) return {
+		issues: [],
+		value: void 0
+	};
+	return result;
+}
+const $ZodOptional = /* @__PURE__ */ $constructor("$ZodOptional", (inst, def) => {
+	$ZodType.init(inst, def);
+	inst._zod.optin = "optional";
+	inst._zod.optout = "optional";
+	defineLazy(inst._zod, "values", () => {
+		return def.innerType._zod.values ? new Set([...def.innerType._zod.values, void 0]) : void 0;
+	});
+	defineLazy(inst._zod, "pattern", () => {
+		const pattern = def.innerType._zod.pattern;
+		return pattern ? new RegExp(`^(${cleanRegex(pattern.source)})?$`) : void 0;
+	});
+	inst._zod.parse = (payload, ctx) => {
+		if (def.innerType._zod.optin === "optional") {
+			const result = def.innerType._zod.run(payload, ctx);
+			if (result instanceof Promise) return result.then((r) => handleOptionalResult(r, payload.value));
+			return handleOptionalResult(result, payload.value);
+		}
+		if (payload.value === void 0) return payload;
+		return def.innerType._zod.run(payload, ctx);
+	};
+});
+const $ZodExactOptional = /* @__PURE__ */ $constructor("$ZodExactOptional", (inst, def) => {
+	$ZodOptional.init(inst, def);
+	defineLazy(inst._zod, "values", () => def.innerType._zod.values);
+	defineLazy(inst._zod, "pattern", () => def.innerType._zod.pattern);
+	inst._zod.parse = (payload, ctx) => {
+		return def.innerType._zod.run(payload, ctx);
+	};
+});
+const $ZodNullable = /* @__PURE__ */ $constructor("$ZodNullable", (inst, def) => {
+	$ZodType.init(inst, def);
+	defineLazy(inst._zod, "optin", () => def.innerType._zod.optin);
+	defineLazy(inst._zod, "optout", () => def.innerType._zod.optout);
+	defineLazy(inst._zod, "pattern", () => {
+		const pattern = def.innerType._zod.pattern;
+		return pattern ? new RegExp(`^(${cleanRegex(pattern.source)}|null)$`) : void 0;
+	});
+	defineLazy(inst._zod, "values", () => {
+		return def.innerType._zod.values ? new Set([...def.innerType._zod.values, null]) : void 0;
+	});
+	inst._zod.parse = (payload, ctx) => {
+		if (payload.value === null) return payload;
+		return def.innerType._zod.run(payload, ctx);
+	};
+});
+const $ZodDefault = /* @__PURE__ */ $constructor("$ZodDefault", (inst, def) => {
+	$ZodType.init(inst, def);
+	inst._zod.optin = "optional";
+	defineLazy(inst._zod, "values", () => def.innerType._zod.values);
+	inst._zod.parse = (payload, ctx) => {
+		if (ctx.direction === "backward") return def.innerType._zod.run(payload, ctx);
+		if (payload.value === void 0) {
+			payload.value = def.defaultValue;
+			/**
+			* $ZodDefault returns the default value immediately in forward direction.
+			* It doesn't pass the default value into the validator ("prefault"). There's no reason to pass the default value through validation. The validity of the default is enforced by TypeScript statically. Otherwise, it's the responsibility of the user to ensure the default is valid. In the case of pipes with divergent in/out types, you can specify the default on the `in` schema of your ZodPipe to set a "prefault" for the pipe.   */
+			return payload;
+		}
+		const result = def.innerType._zod.run(payload, ctx);
+		if (result instanceof Promise) return result.then((result) => handleDefaultResult(result, def));
+		return handleDefaultResult(result, def);
+	};
+});
+function handleDefaultResult(payload, def) {
+	if (payload.value === void 0) payload.value = def.defaultValue;
+	return payload;
+}
+const $ZodPrefault = /* @__PURE__ */ $constructor("$ZodPrefault", (inst, def) => {
+	$ZodType.init(inst, def);
+	inst._zod.optin = "optional";
+	defineLazy(inst._zod, "values", () => def.innerType._zod.values);
+	inst._zod.parse = (payload, ctx) => {
+		if (ctx.direction === "backward") return def.innerType._zod.run(payload, ctx);
+		if (payload.value === void 0) payload.value = def.defaultValue;
+		return def.innerType._zod.run(payload, ctx);
+	};
+});
+const $ZodNonOptional = /* @__PURE__ */ $constructor("$ZodNonOptional", (inst, def) => {
+	$ZodType.init(inst, def);
+	defineLazy(inst._zod, "values", () => {
+		const v = def.innerType._zod.values;
+		return v ? new Set([...v].filter((x) => x !== void 0)) : void 0;
+	});
+	inst._zod.parse = (payload, ctx) => {
+		const result = def.innerType._zod.run(payload, ctx);
+		if (result instanceof Promise) return result.then((result) => handleNonOptionalResult(result, inst));
+		return handleNonOptionalResult(result, inst);
+	};
+});
+function handleNonOptionalResult(payload, inst) {
+	if (!payload.issues.length && payload.value === void 0) payload.issues.push({
+		code: "invalid_type",
+		expected: "nonoptional",
+		input: payload.value,
+		inst
+	});
+	return payload;
+}
+const $ZodCatch = /* @__PURE__ */ $constructor("$ZodCatch", (inst, def) => {
+	$ZodType.init(inst, def);
+	defineLazy(inst._zod, "optin", () => def.innerType._zod.optin);
+	defineLazy(inst._zod, "optout", () => def.innerType._zod.optout);
+	defineLazy(inst._zod, "values", () => def.innerType._zod.values);
+	inst._zod.parse = (payload, ctx) => {
+		if (ctx.direction === "backward") return def.innerType._zod.run(payload, ctx);
+		const result = def.innerType._zod.run(payload, ctx);
+		if (result instanceof Promise) return result.then((result) => {
+			payload.value = result.value;
+			if (result.issues.length) {
+				payload.value = def.catchValue({
+					...payload,
+					error: { issues: result.issues.map((iss) => finalizeIssue(iss, ctx, config())) },
+					input: payload.value
+				});
+				payload.issues = [];
+			}
+			return payload;
+		});
+		payload.value = result.value;
+		if (result.issues.length) {
+			payload.value = def.catchValue({
+				...payload,
+				error: { issues: result.issues.map((iss) => finalizeIssue(iss, ctx, config())) },
+				input: payload.value
+			});
+			payload.issues = [];
+		}
+		return payload;
+	};
+});
+const $ZodPipe = /* @__PURE__ */ $constructor("$ZodPipe", (inst, def) => {
+	$ZodType.init(inst, def);
+	defineLazy(inst._zod, "values", () => def.in._zod.values);
+	defineLazy(inst._zod, "optin", () => def.in._zod.optin);
+	defineLazy(inst._zod, "optout", () => def.out._zod.optout);
+	defineLazy(inst._zod, "propValues", () => def.in._zod.propValues);
+	inst._zod.parse = (payload, ctx) => {
+		if (ctx.direction === "backward") {
+			const right = def.out._zod.run(payload, ctx);
+			if (right instanceof Promise) return right.then((right) => handlePipeResult(right, def.in, ctx));
+			return handlePipeResult(right, def.in, ctx);
+		}
+		const left = def.in._zod.run(payload, ctx);
+		if (left instanceof Promise) return left.then((left) => handlePipeResult(left, def.out, ctx));
+		return handlePipeResult(left, def.out, ctx);
+	};
+});
+function handlePipeResult(left, next, ctx) {
+	if (left.issues.length) {
+		left.aborted = true;
+		return left;
+	}
+	return next._zod.run({
+		value: left.value,
+		issues: left.issues
+	}, ctx);
+}
+const $ZodReadonly = /* @__PURE__ */ $constructor("$ZodReadonly", (inst, def) => {
+	$ZodType.init(inst, def);
+	defineLazy(inst._zod, "propValues", () => def.innerType._zod.propValues);
+	defineLazy(inst._zod, "values", () => def.innerType._zod.values);
+	defineLazy(inst._zod, "optin", () => def.innerType?._zod?.optin);
+	defineLazy(inst._zod, "optout", () => def.innerType?._zod?.optout);
+	inst._zod.parse = (payload, ctx) => {
+		if (ctx.direction === "backward") return def.innerType._zod.run(payload, ctx);
+		const result = def.innerType._zod.run(payload, ctx);
+		if (result instanceof Promise) return result.then(handleReadonlyResult);
+		return handleReadonlyResult(result);
+	};
+});
+function handleReadonlyResult(payload) {
+	payload.value = Object.freeze(payload.value);
+	return payload;
+}
+const $ZodCustom = /* @__PURE__ */ $constructor("$ZodCustom", (inst, def) => {
+	$ZodCheck.init(inst, def);
+	$ZodType.init(inst, def);
+	inst._zod.parse = (payload, _) => {
+		return payload;
+	};
+	inst._zod.check = (payload) => {
+		const input = payload.value;
+		const r = def.fn(input);
+		if (r instanceof Promise) return r.then((r) => handleRefineResult(r, payload, input, inst));
+		handleRefineResult(r, payload, input, inst);
+	};
+});
+function handleRefineResult(result, payload, input, inst) {
+	if (!result) {
+		const _iss = {
+			code: "custom",
+			input,
+			inst,
+			path: [...inst._zod.def.path ?? []],
+			continue: !inst._zod.def.abort
+		};
+		if (inst._zod.def.params) _iss.params = inst._zod.def.params;
+		payload.issues.push(issue(_iss));
+	}
+}
+
+//#endregion
+//#region node_modules/zod/v4/core/registries.js
+var _a;
+var $ZodRegistry = class {
+	constructor() {
+		this._map = /* @__PURE__ */ new WeakMap();
+		this._idmap = /* @__PURE__ */ new Map();
+	}
+	add(schema, ..._meta) {
+		const meta = _meta[0];
+		this._map.set(schema, meta);
+		if (meta && typeof meta === "object" && "id" in meta) this._idmap.set(meta.id, schema);
+		return this;
+	}
+	clear() {
+		this._map = /* @__PURE__ */ new WeakMap();
+		this._idmap = /* @__PURE__ */ new Map();
+		return this;
+	}
+	remove(schema) {
+		const meta = this._map.get(schema);
+		if (meta && typeof meta === "object" && "id" in meta) this._idmap.delete(meta.id);
+		this._map.delete(schema);
+		return this;
+	}
+	get(schema) {
+		const p = schema._zod.parent;
+		if (p) {
+			const pm = { ...this.get(p) ?? {} };
+			delete pm.id;
+			const f = {
+				...pm,
+				...this._map.get(schema)
+			};
+			return Object.keys(f).length ? f : void 0;
+		}
+		return this._map.get(schema);
+	}
+	has(schema) {
+		return this._map.has(schema);
+	}
+};
+function registry() {
+	return new $ZodRegistry();
+}
+(_a = globalThis).__zod_globalRegistry ?? (_a.__zod_globalRegistry = registry());
+const globalRegistry = globalThis.__zod_globalRegistry;
+
+//#endregion
+//#region node_modules/zod/v4/core/api.js
+/* @__NO_SIDE_EFFECTS__ */
+function _string(Class, params) {
+	return new Class({
+		type: "string",
+		...normalizeParams(params)
+	});
+}
+/* @__NO_SIDE_EFFECTS__ */
+function _email(Class, params) {
+	return new Class({
+		type: "string",
+		format: "email",
+		check: "string_format",
+		abort: false,
+		...normalizeParams(params)
+	});
+}
+/* @__NO_SIDE_EFFECTS__ */
+function _guid(Class, params) {
+	return new Class({
+		type: "string",
+		format: "guid",
+		check: "string_format",
+		abort: false,
+		...normalizeParams(params)
+	});
+}
+/* @__NO_SIDE_EFFECTS__ */
+function _uuid(Class, params) {
+	return new Class({
+		type: "string",
+		format: "uuid",
+		check: "string_format",
+		abort: false,
+		...normalizeParams(params)
+	});
+}
+/* @__NO_SIDE_EFFECTS__ */
+function _uuidv4(Class, params) {
+	return new Class({
+		type: "string",
+		format: "uuid",
+		check: "string_format",
+		abort: false,
+		version: "v4",
+		...normalizeParams(params)
+	});
+}
+/* @__NO_SIDE_EFFECTS__ */
+function _uuidv6(Class, params) {
+	return new Class({
+		type: "string",
+		format: "uuid",
+		check: "string_format",
+		abort: false,
+		version: "v6",
+		...normalizeParams(params)
+	});
+}
+/* @__NO_SIDE_EFFECTS__ */
+function _uuidv7(Class, params) {
+	return new Class({
+		type: "string",
+		format: "uuid",
+		check: "string_format",
+		abort: false,
+		version: "v7",
+		...normalizeParams(params)
+	});
+}
+/* @__NO_SIDE_EFFECTS__ */
+function _url(Class, params) {
+	return new Class({
+		type: "string",
+		format: "url",
+		check: "string_format",
+		abort: false,
+		...normalizeParams(params)
+	});
+}
+/* @__NO_SIDE_EFFECTS__ */
+function _emoji(Class, params) {
+	return new Class({
+		type: "string",
+		format: "emoji",
+		check: "string_format",
+		abort: false,
+		...normalizeParams(params)
+	});
+}
+/* @__NO_SIDE_EFFECTS__ */
+function _nanoid(Class, params) {
+	return new Class({
+		type: "string",
+		format: "nanoid",
+		check: "string_format",
+		abort: false,
+		...normalizeParams(params)
+	});
+}
+/* @__NO_SIDE_EFFECTS__ */
+function _cuid(Class, params) {
+	return new Class({
+		type: "string",
+		format: "cuid",
+		check: "string_format",
+		abort: false,
+		...normalizeParams(params)
+	});
+}
+/* @__NO_SIDE_EFFECTS__ */
+function _cuid2(Class, params) {
+	return new Class({
+		type: "string",
+		format: "cuid2",
+		check: "string_format",
+		abort: false,
+		...normalizeParams(params)
+	});
+}
+/* @__NO_SIDE_EFFECTS__ */
+function _ulid(Class, params) {
+	return new Class({
+		type: "string",
+		format: "ulid",
+		check: "string_format",
+		abort: false,
+		...normalizeParams(params)
+	});
+}
+/* @__NO_SIDE_EFFECTS__ */
+function _xid(Class, params) {
+	return new Class({
+		type: "string",
+		format: "xid",
+		check: "string_format",
+		abort: false,
+		...normalizeParams(params)
+	});
+}
+/* @__NO_SIDE_EFFECTS__ */
+function _ksuid(Class, params) {
+	return new Class({
+		type: "string",
+		format: "ksuid",
+		check: "string_format",
+		abort: false,
+		...normalizeParams(params)
+	});
+}
+/* @__NO_SIDE_EFFECTS__ */
+function _ipv4(Class, params) {
+	return new Class({
+		type: "string",
+		format: "ipv4",
+		check: "string_format",
+		abort: false,
+		...normalizeParams(params)
+	});
+}
+/* @__NO_SIDE_EFFECTS__ */
+function _ipv6(Class, params) {
+	return new Class({
+		type: "string",
+		format: "ipv6",
+		check: "string_format",
+		abort: false,
+		...normalizeParams(params)
+	});
+}
+/* @__NO_SIDE_EFFECTS__ */
+function _cidrv4(Class, params) {
+	return new Class({
+		type: "string",
+		format: "cidrv4",
+		check: "string_format",
+		abort: false,
+		...normalizeParams(params)
+	});
+}
+/* @__NO_SIDE_EFFECTS__ */
+function _cidrv6(Class, params) {
+	return new Class({
+		type: "string",
+		format: "cidrv6",
+		check: "string_format",
+		abort: false,
+		...normalizeParams(params)
+	});
+}
+/* @__NO_SIDE_EFFECTS__ */
+function _base64(Class, params) {
+	return new Class({
+		type: "string",
+		format: "base64",
+		check: "string_format",
+		abort: false,
+		...normalizeParams(params)
+	});
+}
+/* @__NO_SIDE_EFFECTS__ */
+function _base64url(Class, params) {
+	return new Class({
+		type: "string",
+		format: "base64url",
+		check: "string_format",
+		abort: false,
+		...normalizeParams(params)
+	});
+}
+/* @__NO_SIDE_EFFECTS__ */
+function _e164(Class, params) {
+	return new Class({
+		type: "string",
+		format: "e164",
+		check: "string_format",
+		abort: false,
+		...normalizeParams(params)
+	});
+}
+/* @__NO_SIDE_EFFECTS__ */
+function _jwt(Class, params) {
+	return new Class({
+		type: "string",
+		format: "jwt",
+		check: "string_format",
+		abort: false,
+		...normalizeParams(params)
+	});
+}
+/* @__NO_SIDE_EFFECTS__ */
+function _isoDateTime(Class, params) {
+	return new Class({
+		type: "string",
+		format: "datetime",
+		check: "string_format",
+		offset: false,
+		local: false,
+		precision: null,
+		...normalizeParams(params)
+	});
+}
+/* @__NO_SIDE_EFFECTS__ */
+function _isoDate(Class, params) {
+	return new Class({
+		type: "string",
+		format: "date",
+		check: "string_format",
+		...normalizeParams(params)
+	});
+}
+/* @__NO_SIDE_EFFECTS__ */
+function _isoTime(Class, params) {
+	return new Class({
+		type: "string",
+		format: "time",
+		check: "string_format",
+		precision: null,
+		...normalizeParams(params)
+	});
+}
+/* @__NO_SIDE_EFFECTS__ */
+function _isoDuration(Class, params) {
+	return new Class({
+		type: "string",
+		format: "duration",
+		check: "string_format",
+		...normalizeParams(params)
+	});
+}
+/* @__NO_SIDE_EFFECTS__ */
+function _boolean(Class, params) {
+	return new Class({
+		type: "boolean",
+		...normalizeParams(params)
+	});
+}
+/* @__NO_SIDE_EFFECTS__ */
+function _unknown(Class) {
+	return new Class({ type: "unknown" });
+}
+/* @__NO_SIDE_EFFECTS__ */
+function _never(Class, params) {
+	return new Class({
+		type: "never",
+		...normalizeParams(params)
+	});
+}
+/* @__NO_SIDE_EFFECTS__ */
+function _maxLength(maximum, params) {
+	return new $ZodCheckMaxLength({
+		check: "max_length",
+		...normalizeParams(params),
+		maximum
+	});
+}
+/* @__NO_SIDE_EFFECTS__ */
+function _minLength(minimum, params) {
+	return new $ZodCheckMinLength({
+		check: "min_length",
+		...normalizeParams(params),
+		minimum
+	});
+}
+/* @__NO_SIDE_EFFECTS__ */
+function _length(length, params) {
+	return new $ZodCheckLengthEquals({
+		check: "length_equals",
+		...normalizeParams(params),
+		length
+	});
+}
+/* @__NO_SIDE_EFFECTS__ */
+function _regex(pattern, params) {
+	return new $ZodCheckRegex({
+		check: "string_format",
+		format: "regex",
+		...normalizeParams(params),
+		pattern
+	});
+}
+/* @__NO_SIDE_EFFECTS__ */
+function _lowercase(params) {
+	return new $ZodCheckLowerCase({
+		check: "string_format",
+		format: "lowercase",
+		...normalizeParams(params)
+	});
+}
+/* @__NO_SIDE_EFFECTS__ */
+function _uppercase(params) {
+	return new $ZodCheckUpperCase({
+		check: "string_format",
+		format: "uppercase",
+		...normalizeParams(params)
+	});
+}
+/* @__NO_SIDE_EFFECTS__ */
+function _includes(includes, params) {
+	return new $ZodCheckIncludes({
+		check: "string_format",
+		format: "includes",
+		...normalizeParams(params),
+		includes
+	});
+}
+/* @__NO_SIDE_EFFECTS__ */
+function _startsWith(prefix, params) {
+	return new $ZodCheckStartsWith({
+		check: "string_format",
+		format: "starts_with",
+		...normalizeParams(params),
+		prefix
+	});
+}
+/* @__NO_SIDE_EFFECTS__ */
+function _endsWith(suffix, params) {
+	return new $ZodCheckEndsWith({
+		check: "string_format",
+		format: "ends_with",
+		...normalizeParams(params),
+		suffix
+	});
+}
+/* @__NO_SIDE_EFFECTS__ */
+function _overwrite(tx) {
+	return new $ZodCheckOverwrite({
+		check: "overwrite",
+		tx
+	});
+}
+/* @__NO_SIDE_EFFECTS__ */
+function _normalize(form) {
+	return /* @__PURE__ */ _overwrite((input) => input.normalize(form));
+}
+/* @__NO_SIDE_EFFECTS__ */
+function _trim() {
+	return /* @__PURE__ */ _overwrite((input) => input.trim());
+}
+/* @__NO_SIDE_EFFECTS__ */
+function _toLowerCase() {
+	return /* @__PURE__ */ _overwrite((input) => input.toLowerCase());
+}
+/* @__NO_SIDE_EFFECTS__ */
+function _toUpperCase() {
+	return /* @__PURE__ */ _overwrite((input) => input.toUpperCase());
+}
+/* @__NO_SIDE_EFFECTS__ */
+function _slugify() {
+	return /* @__PURE__ */ _overwrite((input) => slugify(input));
+}
+/* @__NO_SIDE_EFFECTS__ */
+function _array(Class, element, params) {
+	return new Class({
+		type: "array",
+		element,
+		...normalizeParams(params)
+	});
+}
+/* @__NO_SIDE_EFFECTS__ */
+function _refine(Class, fn, _params) {
+	return new Class({
+		type: "custom",
+		check: "custom",
+		fn,
+		...normalizeParams(_params)
+	});
+}
+/* @__NO_SIDE_EFFECTS__ */
+function _superRefine(fn) {
+	const ch = /* @__PURE__ */ _check((payload) => {
+		payload.addIssue = (issue$2) => {
+			if (typeof issue$2 === "string") payload.issues.push(issue(issue$2, payload.value, ch._zod.def));
+			else {
+				const _issue = issue$2;
+				if (_issue.fatal) _issue.continue = false;
+				_issue.code ?? (_issue.code = "custom");
+				_issue.input ?? (_issue.input = payload.value);
+				_issue.inst ?? (_issue.inst = ch);
+				_issue.continue ?? (_issue.continue = !ch._zod.def.abort);
+				payload.issues.push(issue(_issue));
+			}
+		};
+		return fn(payload.value, payload);
+	});
+	return ch;
+}
+/* @__NO_SIDE_EFFECTS__ */
+function _check(fn, params) {
+	const ch = new $ZodCheck({
+		check: "custom",
+		...normalizeParams(params)
+	});
+	ch._zod.check = fn;
+	return ch;
+}
+/* @__NO_SIDE_EFFECTS__ */
+function describe$1(description) {
+	const ch = new $ZodCheck({ check: "describe" });
+	ch._zod.onattach = [(inst) => {
+		const existing = globalRegistry.get(inst) ?? {};
+		globalRegistry.add(inst, {
+			...existing,
+			description
+		});
+	}];
+	ch._zod.check = () => {};
+	return ch;
+}
+/* @__NO_SIDE_EFFECTS__ */
+function meta$1(metadata) {
+	const ch = new $ZodCheck({ check: "meta" });
+	ch._zod.onattach = [(inst) => {
+		const existing = globalRegistry.get(inst) ?? {};
+		globalRegistry.add(inst, {
+			...existing,
+			...metadata
+		});
+	}];
+	ch._zod.check = () => {};
+	return ch;
+}
+
+//#endregion
+//#region node_modules/zod/v4/core/to-json-schema.js
+function initializeContext(params) {
+	let target = params?.target ?? "draft-2020-12";
+	if (target === "draft-4") target = "draft-04";
+	if (target === "draft-7") target = "draft-07";
+	return {
+		processors: params.processors ?? {},
+		metadataRegistry: params?.metadata ?? globalRegistry,
+		target,
+		unrepresentable: params?.unrepresentable ?? "throw",
+		override: params?.override ?? (() => {}),
+		io: params?.io ?? "output",
+		counter: 0,
+		seen: /* @__PURE__ */ new Map(),
+		cycles: params?.cycles ?? "ref",
+		reused: params?.reused ?? "inline",
+		external: params?.external ?? void 0
+	};
+}
+function process$1(schema, ctx, _params = {
+	path: [],
+	schemaPath: []
+}) {
+	var _a;
+	const def = schema._zod.def;
+	const seen = ctx.seen.get(schema);
+	if (seen) {
+		seen.count++;
+		if (_params.schemaPath.includes(schema)) seen.cycle = _params.path;
+		return seen.schema;
+	}
+	const result = {
+		schema: {},
+		count: 1,
+		cycle: void 0,
+		path: _params.path
+	};
+	ctx.seen.set(schema, result);
+	const overrideSchema = schema._zod.toJSONSchema?.();
+	if (overrideSchema) result.schema = overrideSchema;
+	else {
+		const params = {
+			..._params,
+			schemaPath: [..._params.schemaPath, schema],
+			path: _params.path
+		};
+		if (schema._zod.processJSONSchema) schema._zod.processJSONSchema(ctx, result.schema, params);
+		else {
+			const _json = result.schema;
+			const processor = ctx.processors[def.type];
+			if (!processor) throw new Error(`[toJSONSchema]: Non-representable type encountered: ${def.type}`);
+			processor(schema, ctx, _json, params);
+		}
+		const parent = schema._zod.parent;
+		if (parent) {
+			if (!result.ref) result.ref = parent;
+			process$1(parent, ctx, params);
+			ctx.seen.get(parent).isParent = true;
+		}
+	}
+	const meta = ctx.metadataRegistry.get(schema);
+	if (meta) Object.assign(result.schema, meta);
+	if (ctx.io === "input" && isTransforming(schema)) {
+		delete result.schema.examples;
+		delete result.schema.default;
+	}
+	if (ctx.io === "input" && result.schema._prefault) (_a = result.schema).default ?? (_a.default = result.schema._prefault);
+	delete result.schema._prefault;
+	return ctx.seen.get(schema).schema;
+}
+function extractDefs(ctx, schema) {
+	const root = ctx.seen.get(schema);
+	if (!root) throw new Error("Unprocessed schema. This is a bug in Zod.");
+	const idToSchema = /* @__PURE__ */ new Map();
+	for (const entry of ctx.seen.entries()) {
+		const id = ctx.metadataRegistry.get(entry[0])?.id;
+		if (id) {
+			const existing = idToSchema.get(id);
+			if (existing && existing !== entry[0]) throw new Error(`Duplicate schema id "${id}" detected during JSON Schema conversion. Two different schemas cannot share the same id when converted together.`);
+			idToSchema.set(id, entry[0]);
+		}
+	}
+	const makeURI = (entry) => {
+		const defsSegment = ctx.target === "draft-2020-12" ? "$defs" : "definitions";
+		if (ctx.external) {
+			const externalId = ctx.external.registry.get(entry[0])?.id;
+			const uriGenerator = ctx.external.uri ?? ((id) => id);
+			if (externalId) return { ref: uriGenerator(externalId) };
+			const id = entry[1].defId ?? entry[1].schema.id ?? `schema${ctx.counter++}`;
+			entry[1].defId = id;
+			return {
+				defId: id,
+				ref: `${uriGenerator("__shared")}#/${defsSegment}/${id}`
+			};
+		}
+		if (entry[1] === root) return { ref: "#" };
+		const defUriPrefix = `#/${defsSegment}/`;
+		const defId = entry[1].schema.id ?? `__schema${ctx.counter++}`;
+		return {
+			defId,
+			ref: defUriPrefix + defId
+		};
+	};
+	const extractToDef = (entry) => {
+		if (entry[1].schema.$ref) return;
+		const seen = entry[1];
+		const { ref, defId } = makeURI(entry);
+		seen.def = { ...seen.schema };
+		if (defId) seen.defId = defId;
+		const schema = seen.schema;
+		for (const key in schema) delete schema[key];
+		schema.$ref = ref;
+	};
+	if (ctx.cycles === "throw") for (const entry of ctx.seen.entries()) {
+		const seen = entry[1];
+		if (seen.cycle) throw new Error(`Cycle detected: #/${seen.cycle?.join("/")}/<root>
+
+Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.`);
+	}
+	for (const entry of ctx.seen.entries()) {
+		const seen = entry[1];
+		if (schema === entry[0]) {
+			extractToDef(entry);
+			continue;
+		}
+		if (ctx.external) {
+			const ext = ctx.external.registry.get(entry[0])?.id;
+			if (schema !== entry[0] && ext) {
+				extractToDef(entry);
+				continue;
+			}
+		}
+		if (ctx.metadataRegistry.get(entry[0])?.id) {
+			extractToDef(entry);
+			continue;
+		}
+		if (seen.cycle) {
+			extractToDef(entry);
+			continue;
+		}
+		if (seen.count > 1) {
+			if (ctx.reused === "ref") {
+				extractToDef(entry);
+				continue;
+			}
+		}
+	}
+}
+function finalize(ctx, schema) {
+	const root = ctx.seen.get(schema);
+	if (!root) throw new Error("Unprocessed schema. This is a bug in Zod.");
+	const flattenRef = (zodSchema) => {
+		const seen = ctx.seen.get(zodSchema);
+		if (seen.ref === null) return;
+		const schema = seen.def ?? seen.schema;
+		const _cached = { ...schema };
+		const ref = seen.ref;
+		seen.ref = null;
+		if (ref) {
+			flattenRef(ref);
+			const refSeen = ctx.seen.get(ref);
+			const refSchema = refSeen.schema;
+			if (refSchema.$ref && (ctx.target === "draft-07" || ctx.target === "draft-04" || ctx.target === "openapi-3.0")) {
+				schema.allOf = schema.allOf ?? [];
+				schema.allOf.push(refSchema);
+			} else Object.assign(schema, refSchema);
+			Object.assign(schema, _cached);
+			if (zodSchema._zod.parent === ref) for (const key in schema) {
+				if (key === "$ref" || key === "allOf") continue;
+				if (!(key in _cached)) delete schema[key];
+			}
+			if (refSchema.$ref && refSeen.def) for (const key in schema) {
+				if (key === "$ref" || key === "allOf") continue;
+				if (key in refSeen.def && JSON.stringify(schema[key]) === JSON.stringify(refSeen.def[key])) delete schema[key];
+			}
+		}
+		const parent = zodSchema._zod.parent;
+		if (parent && parent !== ref) {
+			flattenRef(parent);
+			const parentSeen = ctx.seen.get(parent);
+			if (parentSeen?.schema.$ref) {
+				schema.$ref = parentSeen.schema.$ref;
+				if (parentSeen.def) for (const key in schema) {
+					if (key === "$ref" || key === "allOf") continue;
+					if (key in parentSeen.def && JSON.stringify(schema[key]) === JSON.stringify(parentSeen.def[key])) delete schema[key];
+				}
+			}
+		}
+		ctx.override({
+			zodSchema,
+			jsonSchema: schema,
+			path: seen.path ?? []
+		});
+	};
+	for (const entry of [...ctx.seen.entries()].reverse()) flattenRef(entry[0]);
+	const result = {};
+	if (ctx.target === "draft-2020-12") result.$schema = "https://json-schema.org/draft/2020-12/schema";
+	else if (ctx.target === "draft-07") result.$schema = "http://json-schema.org/draft-07/schema#";
+	else if (ctx.target === "draft-04") result.$schema = "http://json-schema.org/draft-04/schema#";
+	else if (ctx.target === "openapi-3.0") {}
+	if (ctx.external?.uri) {
+		const id = ctx.external.registry.get(schema)?.id;
+		if (!id) throw new Error("Schema is missing an `id` property");
+		result.$id = ctx.external.uri(id);
+	}
+	Object.assign(result, root.def ?? root.schema);
+	const defs = ctx.external?.defs ?? {};
+	for (const entry of ctx.seen.entries()) {
+		const seen = entry[1];
+		if (seen.def && seen.defId) defs[seen.defId] = seen.def;
+	}
+	if (ctx.external) {} else if (Object.keys(defs).length > 0) if (ctx.target === "draft-2020-12") result.$defs = defs;
+	else result.definitions = defs;
+	try {
+		const finalized = JSON.parse(JSON.stringify(result));
+		Object.defineProperty(finalized, "~standard", {
+			value: {
+				...schema["~standard"],
+				jsonSchema: {
+					input: createStandardJSONSchemaMethod(schema, "input", ctx.processors),
+					output: createStandardJSONSchemaMethod(schema, "output", ctx.processors)
+				}
+			},
+			enumerable: false,
+			writable: false
+		});
+		return finalized;
+	} catch (_err) {
+		throw new Error("Error converting schema to JSON.");
+	}
+}
+function isTransforming(_schema, _ctx) {
+	const ctx = _ctx ?? { seen: /* @__PURE__ */ new Set() };
+	if (ctx.seen.has(_schema)) return false;
+	ctx.seen.add(_schema);
+	const def = _schema._zod.def;
+	if (def.type === "transform") return true;
+	if (def.type === "array") return isTransforming(def.element, ctx);
+	if (def.type === "set") return isTransforming(def.valueType, ctx);
+	if (def.type === "lazy") return isTransforming(def.getter(), ctx);
+	if (def.type === "promise" || def.type === "optional" || def.type === "nonoptional" || def.type === "nullable" || def.type === "readonly" || def.type === "default" || def.type === "prefault") return isTransforming(def.innerType, ctx);
+	if (def.type === "intersection") return isTransforming(def.left, ctx) || isTransforming(def.right, ctx);
+	if (def.type === "record" || def.type === "map") return isTransforming(def.keyType, ctx) || isTransforming(def.valueType, ctx);
+	if (def.type === "pipe") return isTransforming(def.in, ctx) || isTransforming(def.out, ctx);
+	if (def.type === "object") {
+		for (const key in def.shape) if (isTransforming(def.shape[key], ctx)) return true;
+		return false;
+	}
+	if (def.type === "union") {
+		for (const option of def.options) if (isTransforming(option, ctx)) return true;
+		return false;
+	}
+	if (def.type === "tuple") {
+		for (const item of def.items) if (isTransforming(item, ctx)) return true;
+		if (def.rest && isTransforming(def.rest, ctx)) return true;
+		return false;
+	}
+	return false;
+}
+/**
+* Creates a toJSONSchema method for a schema instance.
+* This encapsulates the logic of initializing context, processing, extracting defs, and finalizing.
+*/
+const createToJSONSchemaMethod = (schema, processors = {}) => (params) => {
+	const ctx = initializeContext({
+		...params,
+		processors
+	});
+	process$1(schema, ctx);
+	extractDefs(ctx, schema);
+	return finalize(ctx, schema);
+};
+const createStandardJSONSchemaMethod = (schema, io, processors = {}) => (params) => {
+	const { libraryOptions, target } = params ?? {};
+	const ctx = initializeContext({
+		...libraryOptions ?? {},
+		target,
+		io,
+		processors
+	});
+	process$1(schema, ctx);
+	extractDefs(ctx, schema);
+	return finalize(ctx, schema);
+};
+
+//#endregion
+//#region node_modules/zod/v4/core/json-schema-processors.js
+const formatMap = {
+	guid: "uuid",
+	url: "uri",
+	datetime: "date-time",
+	json_string: "json-string",
+	regex: ""
+};
+const stringProcessor = (schema, ctx, _json, _params) => {
+	const json = _json;
+	json.type = "string";
+	const { minimum, maximum, format, patterns, contentEncoding } = schema._zod.bag;
+	if (typeof minimum === "number") json.minLength = minimum;
+	if (typeof maximum === "number") json.maxLength = maximum;
+	if (format) {
+		json.format = formatMap[format] ?? format;
+		if (json.format === "") delete json.format;
+		if (format === "time") delete json.format;
+	}
+	if (contentEncoding) json.contentEncoding = contentEncoding;
+	if (patterns && patterns.size > 0) {
+		const regexes = [...patterns];
+		if (regexes.length === 1) json.pattern = regexes[0].source;
+		else if (regexes.length > 1) json.allOf = [...regexes.map((regex) => ({
+			...ctx.target === "draft-07" || ctx.target === "draft-04" || ctx.target === "openapi-3.0" ? { type: "string" } : {},
+			pattern: regex.source
+		}))];
+	}
+};
+const booleanProcessor = (_schema, _ctx, json, _params) => {
+	json.type = "boolean";
+};
+const neverProcessor = (_schema, _ctx, json, _params) => {
+	json.not = {};
+};
+const unknownProcessor = (_schema, _ctx, _json, _params) => {};
+const enumProcessor = (schema, _ctx, json, _params) => {
+	const def = schema._zod.def;
+	const values = getEnumValues(def.entries);
+	if (values.every((v) => typeof v === "number")) json.type = "number";
+	if (values.every((v) => typeof v === "string")) json.type = "string";
+	json.enum = values;
+};
+const customProcessor = (_schema, ctx, _json, _params) => {
+	if (ctx.unrepresentable === "throw") throw new Error("Custom types cannot be represented in JSON Schema");
+};
+const transformProcessor = (_schema, ctx, _json, _params) => {
+	if (ctx.unrepresentable === "throw") throw new Error("Transforms cannot be represented in JSON Schema");
+};
+const arrayProcessor = (schema, ctx, _json, params) => {
+	const json = _json;
+	const def = schema._zod.def;
+	const { minimum, maximum } = schema._zod.bag;
+	if (typeof minimum === "number") json.minItems = minimum;
+	if (typeof maximum === "number") json.maxItems = maximum;
+	json.type = "array";
+	json.items = process$1(def.element, ctx, {
+		...params,
+		path: [...params.path, "items"]
+	});
+};
+const objectProcessor = (schema, ctx, _json, params) => {
+	const json = _json;
+	const def = schema._zod.def;
+	json.type = "object";
+	json.properties = {};
+	const shape = def.shape;
+	for (const key in shape) json.properties[key] = process$1(shape[key], ctx, {
+		...params,
+		path: [
+			...params.path,
+			"properties",
+			key
+		]
+	});
+	const allKeys = new Set(Object.keys(shape));
+	const requiredKeys = new Set([...allKeys].filter((key) => {
+		const v = def.shape[key]._zod;
+		if (ctx.io === "input") return v.optin === void 0;
+		else return v.optout === void 0;
+	}));
+	if (requiredKeys.size > 0) json.required = Array.from(requiredKeys);
+	if (def.catchall?._zod.def.type === "never") json.additionalProperties = false;
+	else if (!def.catchall) {
+		if (ctx.io === "output") json.additionalProperties = false;
+	} else if (def.catchall) json.additionalProperties = process$1(def.catchall, ctx, {
+		...params,
+		path: [...params.path, "additionalProperties"]
+	});
+};
+const unionProcessor = (schema, ctx, json, params) => {
+	const def = schema._zod.def;
+	const isExclusive = def.inclusive === false;
+	const options = def.options.map((x, i) => process$1(x, ctx, {
+		...params,
+		path: [
+			...params.path,
+			isExclusive ? "oneOf" : "anyOf",
+			i
+		]
+	}));
+	if (isExclusive) json.oneOf = options;
+	else json.anyOf = options;
+};
+const intersectionProcessor = (schema, ctx, json, params) => {
+	const def = schema._zod.def;
+	const a = process$1(def.left, ctx, {
+		...params,
+		path: [
+			...params.path,
+			"allOf",
+			0
+		]
+	});
+	const b = process$1(def.right, ctx, {
+		...params,
+		path: [
+			...params.path,
+			"allOf",
+			1
+		]
+	});
+	const isSimpleIntersection = (val) => "allOf" in val && Object.keys(val).length === 1;
+	json.allOf = [...isSimpleIntersection(a) ? a.allOf : [a], ...isSimpleIntersection(b) ? b.allOf : [b]];
+};
+const recordProcessor = (schema, ctx, _json, params) => {
+	const json = _json;
+	const def = schema._zod.def;
+	json.type = "object";
+	const keyType = def.keyType;
+	const patterns = keyType._zod.bag?.patterns;
+	if (def.mode === "loose" && patterns && patterns.size > 0) {
+		const valueSchema = process$1(def.valueType, ctx, {
+			...params,
+			path: [
+				...params.path,
+				"patternProperties",
+				"*"
+			]
+		});
+		json.patternProperties = {};
+		for (const pattern of patterns) json.patternProperties[pattern.source] = valueSchema;
+	} else {
+		if (ctx.target === "draft-07" || ctx.target === "draft-2020-12") json.propertyNames = process$1(def.keyType, ctx, {
+			...params,
+			path: [...params.path, "propertyNames"]
+		});
+		json.additionalProperties = process$1(def.valueType, ctx, {
+			...params,
+			path: [...params.path, "additionalProperties"]
+		});
+	}
+	const keyValues = keyType._zod.values;
+	if (keyValues) {
+		const validKeyValues = [...keyValues].filter((v) => typeof v === "string" || typeof v === "number");
+		if (validKeyValues.length > 0) json.required = validKeyValues;
+	}
+};
+const nullableProcessor = (schema, ctx, json, params) => {
+	const def = schema._zod.def;
+	const inner = process$1(def.innerType, ctx, params);
+	const seen = ctx.seen.get(schema);
+	if (ctx.target === "openapi-3.0") {
+		seen.ref = def.innerType;
+		json.nullable = true;
+	} else json.anyOf = [inner, { type: "null" }];
+};
+const nonoptionalProcessor = (schema, ctx, _json, params) => {
+	const def = schema._zod.def;
+	process$1(def.innerType, ctx, params);
+	const seen = ctx.seen.get(schema);
+	seen.ref = def.innerType;
+};
+const defaultProcessor = (schema, ctx, json, params) => {
+	const def = schema._zod.def;
+	process$1(def.innerType, ctx, params);
+	const seen = ctx.seen.get(schema);
+	seen.ref = def.innerType;
+	json.default = JSON.parse(JSON.stringify(def.defaultValue));
+};
+const prefaultProcessor = (schema, ctx, json, params) => {
+	const def = schema._zod.def;
+	process$1(def.innerType, ctx, params);
+	const seen = ctx.seen.get(schema);
+	seen.ref = def.innerType;
+	if (ctx.io === "input") json._prefault = JSON.parse(JSON.stringify(def.defaultValue));
+};
+const catchProcessor = (schema, ctx, json, params) => {
+	const def = schema._zod.def;
+	process$1(def.innerType, ctx, params);
+	const seen = ctx.seen.get(schema);
+	seen.ref = def.innerType;
+	let catchValue;
+	try {
+		catchValue = def.catchValue(void 0);
+	} catch {
+		throw new Error("Dynamic catch values are not supported in JSON Schema");
+	}
+	json.default = catchValue;
+};
+const pipeProcessor = (schema, ctx, _json, params) => {
+	const def = schema._zod.def;
+	const innerType = ctx.io === "input" ? def.in._zod.def.type === "transform" ? def.out : def.in : def.out;
+	process$1(innerType, ctx, params);
+	const seen = ctx.seen.get(schema);
+	seen.ref = innerType;
+};
+const readonlyProcessor = (schema, ctx, json, params) => {
+	const def = schema._zod.def;
+	process$1(def.innerType, ctx, params);
+	const seen = ctx.seen.get(schema);
+	seen.ref = def.innerType;
+	json.readOnly = true;
+};
+const optionalProcessor = (schema, ctx, _json, params) => {
+	const def = schema._zod.def;
+	process$1(def.innerType, ctx, params);
+	const seen = ctx.seen.get(schema);
+	seen.ref = def.innerType;
+};
+
+//#endregion
+//#region node_modules/zod/v4/classic/iso.js
+const ZodISODateTime = /* @__PURE__ */ $constructor("ZodISODateTime", (inst, def) => {
+	$ZodISODateTime.init(inst, def);
+	ZodStringFormat.init(inst, def);
+});
+function datetime(params) {
+	return _isoDateTime(ZodISODateTime, params);
+}
+const ZodISODate = /* @__PURE__ */ $constructor("ZodISODate", (inst, def) => {
+	$ZodISODate.init(inst, def);
+	ZodStringFormat.init(inst, def);
+});
+function date(params) {
+	return _isoDate(ZodISODate, params);
+}
+const ZodISOTime = /* @__PURE__ */ $constructor("ZodISOTime", (inst, def) => {
+	$ZodISOTime.init(inst, def);
+	ZodStringFormat.init(inst, def);
+});
+function time(params) {
+	return _isoTime(ZodISOTime, params);
+}
+const ZodISODuration = /* @__PURE__ */ $constructor("ZodISODuration", (inst, def) => {
+	$ZodISODuration.init(inst, def);
+	ZodStringFormat.init(inst, def);
+});
+function duration(params) {
+	return _isoDuration(ZodISODuration, params);
+}
+
+//#endregion
+//#region node_modules/zod/v4/classic/errors.js
+const initializer = (inst, issues) => {
+	$ZodError.init(inst, issues);
+	inst.name = "ZodError";
+	Object.defineProperties(inst, {
+		format: { value: (mapper) => formatError(inst, mapper) },
+		flatten: { value: (mapper) => flattenError(inst, mapper) },
+		addIssue: { value: (issue) => {
+			inst.issues.push(issue);
+			inst.message = JSON.stringify(inst.issues, jsonStringifyReplacer, 2);
+		} },
+		addIssues: { value: (issues) => {
+			inst.issues.push(...issues);
+			inst.message = JSON.stringify(inst.issues, jsonStringifyReplacer, 2);
+		} },
+		isEmpty: { get() {
+			return inst.issues.length === 0;
+		} }
+	});
+};
+const ZodError = $constructor("ZodError", initializer);
+const ZodRealError = $constructor("ZodError", initializer, { Parent: Error });
+
+//#endregion
+//#region node_modules/zod/v4/classic/parse.js
+const parse$2 = /* @__PURE__ */ _parse(ZodRealError);
+const parseAsync = /* @__PURE__ */ _parseAsync(ZodRealError);
+const safeParse$1 = /* @__PURE__ */ _safeParse(ZodRealError);
+const safeParseAsync = /* @__PURE__ */ _safeParseAsync(ZodRealError);
+const encode = /* @__PURE__ */ _encode(ZodRealError);
+const decode = /* @__PURE__ */ _decode(ZodRealError);
+const encodeAsync = /* @__PURE__ */ _encodeAsync(ZodRealError);
+const decodeAsync = /* @__PURE__ */ _decodeAsync(ZodRealError);
+const safeEncode = /* @__PURE__ */ _safeEncode(ZodRealError);
+const safeDecode = /* @__PURE__ */ _safeDecode(ZodRealError);
+const safeEncodeAsync = /* @__PURE__ */ _safeEncodeAsync(ZodRealError);
+const safeDecodeAsync = /* @__PURE__ */ _safeDecodeAsync(ZodRealError);
+
+//#endregion
+//#region node_modules/zod/v4/classic/schemas.js
+const ZodType = /* @__PURE__ */ $constructor("ZodType", (inst, def) => {
+	$ZodType.init(inst, def);
+	Object.assign(inst["~standard"], { jsonSchema: {
+		input: createStandardJSONSchemaMethod(inst, "input"),
+		output: createStandardJSONSchemaMethod(inst, "output")
+	} });
+	inst.toJSONSchema = createToJSONSchemaMethod(inst, {});
+	inst.def = def;
+	inst.type = def.type;
+	Object.defineProperty(inst, "_def", { value: def });
+	inst.check = (...checks) => {
+		return inst.clone(mergeDefs(def, { checks: [...def.checks ?? [], ...checks.map((ch) => typeof ch === "function" ? { _zod: {
+			check: ch,
+			def: { check: "custom" },
+			onattach: []
+		} } : ch)] }), { parent: true });
+	};
+	inst.with = inst.check;
+	inst.clone = (def, params) => clone(inst, def, params);
+	inst.brand = () => inst;
+	inst.register = ((reg, meta) => {
+		reg.add(inst, meta);
+		return inst;
+	});
+	inst.parse = (data, params) => parse$2(inst, data, params, { callee: inst.parse });
+	inst.safeParse = (data, params) => safeParse$1(inst, data, params);
+	inst.parseAsync = async (data, params) => parseAsync(inst, data, params, { callee: inst.parseAsync });
+	inst.safeParseAsync = async (data, params) => safeParseAsync(inst, data, params);
+	inst.spa = inst.safeParseAsync;
+	inst.encode = (data, params) => encode(inst, data, params);
+	inst.decode = (data, params) => decode(inst, data, params);
+	inst.encodeAsync = async (data, params) => encodeAsync(inst, data, params);
+	inst.decodeAsync = async (data, params) => decodeAsync(inst, data, params);
+	inst.safeEncode = (data, params) => safeEncode(inst, data, params);
+	inst.safeDecode = (data, params) => safeDecode(inst, data, params);
+	inst.safeEncodeAsync = async (data, params) => safeEncodeAsync(inst, data, params);
+	inst.safeDecodeAsync = async (data, params) => safeDecodeAsync(inst, data, params);
+	inst.refine = (check, params) => inst.check(refine(check, params));
+	inst.superRefine = (refinement) => inst.check(superRefine(refinement));
+	inst.overwrite = (fn) => inst.check(_overwrite(fn));
+	inst.optional = () => optional(inst);
+	inst.exactOptional = () => exactOptional(inst);
+	inst.nullable = () => nullable(inst);
+	inst.nullish = () => optional(nullable(inst));
+	inst.nonoptional = (params) => nonoptional(inst, params);
+	inst.array = () => array(inst);
+	inst.or = (arg) => union([inst, arg]);
+	inst.and = (arg) => intersection(inst, arg);
+	inst.transform = (tx) => pipe(inst, transform(tx));
+	inst.default = (def) => _default(inst, def);
+	inst.prefault = (def) => prefault(inst, def);
+	inst.catch = (params) => _catch(inst, params);
+	inst.pipe = (target) => pipe(inst, target);
+	inst.readonly = () => readonly(inst);
+	inst.describe = (description) => {
+		const cl = inst.clone();
+		globalRegistry.add(cl, { description });
+		return cl;
+	};
+	Object.defineProperty(inst, "description", {
+		get() {
+			return globalRegistry.get(inst)?.description;
+		},
+		configurable: true
+	});
+	inst.meta = (...args) => {
+		if (args.length === 0) return globalRegistry.get(inst);
+		const cl = inst.clone();
+		globalRegistry.add(cl, args[0]);
+		return cl;
+	};
+	inst.isOptional = () => inst.safeParse(void 0).success;
+	inst.isNullable = () => inst.safeParse(null).success;
+	inst.apply = (fn) => fn(inst);
+	return inst;
+});
+/** @internal */
+const _ZodString = /* @__PURE__ */ $constructor("_ZodString", (inst, def) => {
+	$ZodString.init(inst, def);
+	ZodType.init(inst, def);
+	inst._zod.processJSONSchema = (ctx, json, params) => stringProcessor(inst, ctx, json, params);
+	const bag = inst._zod.bag;
+	inst.format = bag.format ?? null;
+	inst.minLength = bag.minimum ?? null;
+	inst.maxLength = bag.maximum ?? null;
+	inst.regex = (...args) => inst.check(_regex(...args));
+	inst.includes = (...args) => inst.check(_includes(...args));
+	inst.startsWith = (...args) => inst.check(_startsWith(...args));
+	inst.endsWith = (...args) => inst.check(_endsWith(...args));
+	inst.min = (...args) => inst.check(_minLength(...args));
+	inst.max = (...args) => inst.check(_maxLength(...args));
+	inst.length = (...args) => inst.check(_length(...args));
+	inst.nonempty = (...args) => inst.check(_minLength(1, ...args));
+	inst.lowercase = (params) => inst.check(_lowercase(params));
+	inst.uppercase = (params) => inst.check(_uppercase(params));
+	inst.trim = () => inst.check(_trim());
+	inst.normalize = (...args) => inst.check(_normalize(...args));
+	inst.toLowerCase = () => inst.check(_toLowerCase());
+	inst.toUpperCase = () => inst.check(_toUpperCase());
+	inst.slugify = () => inst.check(_slugify());
+});
+const ZodString = /* @__PURE__ */ $constructor("ZodString", (inst, def) => {
+	$ZodString.init(inst, def);
+	_ZodString.init(inst, def);
+	inst.email = (params) => inst.check(_email(ZodEmail, params));
+	inst.url = (params) => inst.check(_url(ZodURL, params));
+	inst.jwt = (params) => inst.check(_jwt(ZodJWT, params));
+	inst.emoji = (params) => inst.check(_emoji(ZodEmoji, params));
+	inst.guid = (params) => inst.check(_guid(ZodGUID, params));
+	inst.uuid = (params) => inst.check(_uuid(ZodUUID, params));
+	inst.uuidv4 = (params) => inst.check(_uuidv4(ZodUUID, params));
+	inst.uuidv6 = (params) => inst.check(_uuidv6(ZodUUID, params));
+	inst.uuidv7 = (params) => inst.check(_uuidv7(ZodUUID, params));
+	inst.nanoid = (params) => inst.check(_nanoid(ZodNanoID, params));
+	inst.guid = (params) => inst.check(_guid(ZodGUID, params));
+	inst.cuid = (params) => inst.check(_cuid(ZodCUID, params));
+	inst.cuid2 = (params) => inst.check(_cuid2(ZodCUID2, params));
+	inst.ulid = (params) => inst.check(_ulid(ZodULID, params));
+	inst.base64 = (params) => inst.check(_base64(ZodBase64, params));
+	inst.base64url = (params) => inst.check(_base64url(ZodBase64URL, params));
+	inst.xid = (params) => inst.check(_xid(ZodXID, params));
+	inst.ksuid = (params) => inst.check(_ksuid(ZodKSUID, params));
+	inst.ipv4 = (params) => inst.check(_ipv4(ZodIPv4, params));
+	inst.ipv6 = (params) => inst.check(_ipv6(ZodIPv6, params));
+	inst.cidrv4 = (params) => inst.check(_cidrv4(ZodCIDRv4, params));
+	inst.cidrv6 = (params) => inst.check(_cidrv6(ZodCIDRv6, params));
+	inst.e164 = (params) => inst.check(_e164(ZodE164, params));
+	inst.datetime = (params) => inst.check(datetime(params));
+	inst.date = (params) => inst.check(date(params));
+	inst.time = (params) => inst.check(time(params));
+	inst.duration = (params) => inst.check(duration(params));
+});
+function string(params) {
+	return _string(ZodString, params);
+}
+const ZodStringFormat = /* @__PURE__ */ $constructor("ZodStringFormat", (inst, def) => {
+	$ZodStringFormat.init(inst, def);
+	_ZodString.init(inst, def);
+});
+const ZodEmail = /* @__PURE__ */ $constructor("ZodEmail", (inst, def) => {
+	$ZodEmail.init(inst, def);
+	ZodStringFormat.init(inst, def);
+});
+const ZodGUID = /* @__PURE__ */ $constructor("ZodGUID", (inst, def) => {
+	$ZodGUID.init(inst, def);
+	ZodStringFormat.init(inst, def);
+});
+const ZodUUID = /* @__PURE__ */ $constructor("ZodUUID", (inst, def) => {
+	$ZodUUID.init(inst, def);
+	ZodStringFormat.init(inst, def);
+});
+const ZodURL = /* @__PURE__ */ $constructor("ZodURL", (inst, def) => {
+	$ZodURL.init(inst, def);
+	ZodStringFormat.init(inst, def);
+});
+const ZodEmoji = /* @__PURE__ */ $constructor("ZodEmoji", (inst, def) => {
+	$ZodEmoji.init(inst, def);
+	ZodStringFormat.init(inst, def);
+});
+const ZodNanoID = /* @__PURE__ */ $constructor("ZodNanoID", (inst, def) => {
+	$ZodNanoID.init(inst, def);
+	ZodStringFormat.init(inst, def);
+});
+const ZodCUID = /* @__PURE__ */ $constructor("ZodCUID", (inst, def) => {
+	$ZodCUID.init(inst, def);
+	ZodStringFormat.init(inst, def);
+});
+const ZodCUID2 = /* @__PURE__ */ $constructor("ZodCUID2", (inst, def) => {
+	$ZodCUID2.init(inst, def);
+	ZodStringFormat.init(inst, def);
+});
+const ZodULID = /* @__PURE__ */ $constructor("ZodULID", (inst, def) => {
+	$ZodULID.init(inst, def);
+	ZodStringFormat.init(inst, def);
+});
+const ZodXID = /* @__PURE__ */ $constructor("ZodXID", (inst, def) => {
+	$ZodXID.init(inst, def);
+	ZodStringFormat.init(inst, def);
+});
+const ZodKSUID = /* @__PURE__ */ $constructor("ZodKSUID", (inst, def) => {
+	$ZodKSUID.init(inst, def);
+	ZodStringFormat.init(inst, def);
+});
+const ZodIPv4 = /* @__PURE__ */ $constructor("ZodIPv4", (inst, def) => {
+	$ZodIPv4.init(inst, def);
+	ZodStringFormat.init(inst, def);
+});
+const ZodIPv6 = /* @__PURE__ */ $constructor("ZodIPv6", (inst, def) => {
+	$ZodIPv6.init(inst, def);
+	ZodStringFormat.init(inst, def);
+});
+const ZodCIDRv4 = /* @__PURE__ */ $constructor("ZodCIDRv4", (inst, def) => {
+	$ZodCIDRv4.init(inst, def);
+	ZodStringFormat.init(inst, def);
+});
+const ZodCIDRv6 = /* @__PURE__ */ $constructor("ZodCIDRv6", (inst, def) => {
+	$ZodCIDRv6.init(inst, def);
+	ZodStringFormat.init(inst, def);
+});
+const ZodBase64 = /* @__PURE__ */ $constructor("ZodBase64", (inst, def) => {
+	$ZodBase64.init(inst, def);
+	ZodStringFormat.init(inst, def);
+});
+const ZodBase64URL = /* @__PURE__ */ $constructor("ZodBase64URL", (inst, def) => {
+	$ZodBase64URL.init(inst, def);
+	ZodStringFormat.init(inst, def);
+});
+const ZodE164 = /* @__PURE__ */ $constructor("ZodE164", (inst, def) => {
+	$ZodE164.init(inst, def);
+	ZodStringFormat.init(inst, def);
+});
+const ZodJWT = /* @__PURE__ */ $constructor("ZodJWT", (inst, def) => {
+	$ZodJWT.init(inst, def);
+	ZodStringFormat.init(inst, def);
+});
+const ZodBoolean = /* @__PURE__ */ $constructor("ZodBoolean", (inst, def) => {
+	$ZodBoolean.init(inst, def);
+	ZodType.init(inst, def);
+	inst._zod.processJSONSchema = (ctx, json, params) => booleanProcessor(inst, ctx, json, params);
+});
+function boolean(params) {
+	return _boolean(ZodBoolean, params);
+}
+const ZodUnknown = /* @__PURE__ */ $constructor("ZodUnknown", (inst, def) => {
+	$ZodUnknown.init(inst, def);
+	ZodType.init(inst, def);
+	inst._zod.processJSONSchema = (ctx, json, params) => unknownProcessor(inst, ctx, json, params);
+});
+function unknown() {
+	return _unknown(ZodUnknown);
+}
+const ZodNever = /* @__PURE__ */ $constructor("ZodNever", (inst, def) => {
+	$ZodNever.init(inst, def);
+	ZodType.init(inst, def);
+	inst._zod.processJSONSchema = (ctx, json, params) => neverProcessor(inst, ctx, json, params);
+});
+function never(params) {
+	return _never(ZodNever, params);
+}
+const ZodArray = /* @__PURE__ */ $constructor("ZodArray", (inst, def) => {
+	$ZodArray.init(inst, def);
+	ZodType.init(inst, def);
+	inst._zod.processJSONSchema = (ctx, json, params) => arrayProcessor(inst, ctx, json, params);
+	inst.element = def.element;
+	inst.min = (minLength, params) => inst.check(_minLength(minLength, params));
+	inst.nonempty = (params) => inst.check(_minLength(1, params));
+	inst.max = (maxLength, params) => inst.check(_maxLength(maxLength, params));
+	inst.length = (len, params) => inst.check(_length(len, params));
+	inst.unwrap = () => inst.element;
+});
+function array(element, params) {
+	return _array(ZodArray, element, params);
+}
+const ZodObject = /* @__PURE__ */ $constructor("ZodObject", (inst, def) => {
+	$ZodObjectJIT.init(inst, def);
+	ZodType.init(inst, def);
+	inst._zod.processJSONSchema = (ctx, json, params) => objectProcessor(inst, ctx, json, params);
+	defineLazy(inst, "shape", () => {
+		return def.shape;
+	});
+	inst.keyof = () => _enum(Object.keys(inst._zod.def.shape));
+	inst.catchall = (catchall) => inst.clone({
+		...inst._zod.def,
+		catchall
+	});
+	inst.passthrough = () => inst.clone({
+		...inst._zod.def,
+		catchall: unknown()
+	});
+	inst.loose = () => inst.clone({
+		...inst._zod.def,
+		catchall: unknown()
+	});
+	inst.strict = () => inst.clone({
+		...inst._zod.def,
+		catchall: never()
+	});
+	inst.strip = () => inst.clone({
+		...inst._zod.def,
+		catchall: void 0
+	});
+	inst.extend = (incoming) => {
+		return extend(inst, incoming);
+	};
+	inst.safeExtend = (incoming) => {
+		return safeExtend(inst, incoming);
+	};
+	inst.merge = (other) => merge$1(inst, other);
+	inst.pick = (mask) => pick(inst, mask);
+	inst.omit = (mask) => omit$1(inst, mask);
+	inst.partial = (...args) => partial(ZodOptional, inst, args[0]);
+	inst.required = (...args) => required(ZodNonOptional, inst, args[0]);
+});
+function object(shape, params) {
+	return new ZodObject({
+		type: "object",
+		shape: shape ?? {},
+		...normalizeParams(params)
+	});
+}
+const ZodUnion = /* @__PURE__ */ $constructor("ZodUnion", (inst, def) => {
+	$ZodUnion.init(inst, def);
+	ZodType.init(inst, def);
+	inst._zod.processJSONSchema = (ctx, json, params) => unionProcessor(inst, ctx, json, params);
+	inst.options = def.options;
+});
+function union(options, params) {
+	return new ZodUnion({
+		type: "union",
+		options,
+		...normalizeParams(params)
+	});
+}
+const ZodIntersection = /* @__PURE__ */ $constructor("ZodIntersection", (inst, def) => {
+	$ZodIntersection.init(inst, def);
+	ZodType.init(inst, def);
+	inst._zod.processJSONSchema = (ctx, json, params) => intersectionProcessor(inst, ctx, json, params);
+});
+function intersection(left, right) {
+	return new ZodIntersection({
+		type: "intersection",
+		left,
+		right
+	});
+}
+const ZodRecord = /* @__PURE__ */ $constructor("ZodRecord", (inst, def) => {
+	$ZodRecord.init(inst, def);
+	ZodType.init(inst, def);
+	inst._zod.processJSONSchema = (ctx, json, params) => recordProcessor(inst, ctx, json, params);
+	inst.keyType = def.keyType;
+	inst.valueType = def.valueType;
+});
+function record(keyType, valueType, params) {
+	return new ZodRecord({
+		type: "record",
+		keyType,
+		valueType,
+		...normalizeParams(params)
+	});
+}
+const ZodEnum = /* @__PURE__ */ $constructor("ZodEnum", (inst, def) => {
+	$ZodEnum.init(inst, def);
+	ZodType.init(inst, def);
+	inst._zod.processJSONSchema = (ctx, json, params) => enumProcessor(inst, ctx, json, params);
+	inst.enum = def.entries;
+	inst.options = Object.values(def.entries);
+	const keys = new Set(Object.keys(def.entries));
+	inst.extract = (values, params) => {
+		const newEntries = {};
+		for (const value of values) if (keys.has(value)) newEntries[value] = def.entries[value];
+		else throw new Error(`Key ${value} not found in enum`);
+		return new ZodEnum({
+			...def,
+			checks: [],
+			...normalizeParams(params),
+			entries: newEntries
+		});
+	};
+	inst.exclude = (values, params) => {
+		const newEntries = { ...def.entries };
+		for (const value of values) if (keys.has(value)) delete newEntries[value];
+		else throw new Error(`Key ${value} not found in enum`);
+		return new ZodEnum({
+			...def,
+			checks: [],
+			...normalizeParams(params),
+			entries: newEntries
+		});
+	};
+});
+function _enum(values, params) {
+	return new ZodEnum({
+		type: "enum",
+		entries: Array.isArray(values) ? Object.fromEntries(values.map((v) => [v, v])) : values,
+		...normalizeParams(params)
+	});
+}
+const ZodTransform = /* @__PURE__ */ $constructor("ZodTransform", (inst, def) => {
+	$ZodTransform.init(inst, def);
+	ZodType.init(inst, def);
+	inst._zod.processJSONSchema = (ctx, json, params) => transformProcessor(inst, ctx, json, params);
+	inst._zod.parse = (payload, _ctx) => {
+		if (_ctx.direction === "backward") throw new $ZodEncodeError(inst.constructor.name);
+		payload.addIssue = (issue$1) => {
+			if (typeof issue$1 === "string") payload.issues.push(issue(issue$1, payload.value, def));
+			else {
+				const _issue = issue$1;
+				if (_issue.fatal) _issue.continue = false;
+				_issue.code ?? (_issue.code = "custom");
+				_issue.input ?? (_issue.input = payload.value);
+				_issue.inst ?? (_issue.inst = inst);
+				payload.issues.push(issue(_issue));
+			}
+		};
+		const output = def.transform(payload.value, payload);
+		if (output instanceof Promise) return output.then((output) => {
+			payload.value = output;
+			return payload;
+		});
+		payload.value = output;
+		return payload;
+	};
+});
+function transform(fn) {
+	return new ZodTransform({
+		type: "transform",
+		transform: fn
+	});
+}
+const ZodOptional = /* @__PURE__ */ $constructor("ZodOptional", (inst, def) => {
+	$ZodOptional.init(inst, def);
+	ZodType.init(inst, def);
+	inst._zod.processJSONSchema = (ctx, json, params) => optionalProcessor(inst, ctx, json, params);
+	inst.unwrap = () => inst._zod.def.innerType;
+});
+function optional(innerType) {
+	return new ZodOptional({
+		type: "optional",
+		innerType
+	});
+}
+const ZodExactOptional = /* @__PURE__ */ $constructor("ZodExactOptional", (inst, def) => {
+	$ZodExactOptional.init(inst, def);
+	ZodType.init(inst, def);
+	inst._zod.processJSONSchema = (ctx, json, params) => optionalProcessor(inst, ctx, json, params);
+	inst.unwrap = () => inst._zod.def.innerType;
+});
+function exactOptional(innerType) {
+	return new ZodExactOptional({
+		type: "optional",
+		innerType
+	});
+}
+const ZodNullable = /* @__PURE__ */ $constructor("ZodNullable", (inst, def) => {
+	$ZodNullable.init(inst, def);
+	ZodType.init(inst, def);
+	inst._zod.processJSONSchema = (ctx, json, params) => nullableProcessor(inst, ctx, json, params);
+	inst.unwrap = () => inst._zod.def.innerType;
+});
+function nullable(innerType) {
+	return new ZodNullable({
+		type: "nullable",
+		innerType
+	});
+}
+const ZodDefault = /* @__PURE__ */ $constructor("ZodDefault", (inst, def) => {
+	$ZodDefault.init(inst, def);
+	ZodType.init(inst, def);
+	inst._zod.processJSONSchema = (ctx, json, params) => defaultProcessor(inst, ctx, json, params);
+	inst.unwrap = () => inst._zod.def.innerType;
+	inst.removeDefault = inst.unwrap;
+});
+function _default(innerType, defaultValue) {
+	return new ZodDefault({
+		type: "default",
+		innerType,
+		get defaultValue() {
+			return typeof defaultValue === "function" ? defaultValue() : shallowClone(defaultValue);
+		}
+	});
+}
+const ZodPrefault = /* @__PURE__ */ $constructor("ZodPrefault", (inst, def) => {
+	$ZodPrefault.init(inst, def);
+	ZodType.init(inst, def);
+	inst._zod.processJSONSchema = (ctx, json, params) => prefaultProcessor(inst, ctx, json, params);
+	inst.unwrap = () => inst._zod.def.innerType;
+});
+function prefault(innerType, defaultValue) {
+	return new ZodPrefault({
+		type: "prefault",
+		innerType,
+		get defaultValue() {
+			return typeof defaultValue === "function" ? defaultValue() : shallowClone(defaultValue);
+		}
+	});
+}
+const ZodNonOptional = /* @__PURE__ */ $constructor("ZodNonOptional", (inst, def) => {
+	$ZodNonOptional.init(inst, def);
+	ZodType.init(inst, def);
+	inst._zod.processJSONSchema = (ctx, json, params) => nonoptionalProcessor(inst, ctx, json, params);
+	inst.unwrap = () => inst._zod.def.innerType;
+});
+function nonoptional(innerType, params) {
+	return new ZodNonOptional({
+		type: "nonoptional",
+		innerType,
+		...normalizeParams(params)
+	});
+}
+const ZodCatch = /* @__PURE__ */ $constructor("ZodCatch", (inst, def) => {
+	$ZodCatch.init(inst, def);
+	ZodType.init(inst, def);
+	inst._zod.processJSONSchema = (ctx, json, params) => catchProcessor(inst, ctx, json, params);
+	inst.unwrap = () => inst._zod.def.innerType;
+	inst.removeCatch = inst.unwrap;
+});
+function _catch(innerType, catchValue) {
+	return new ZodCatch({
+		type: "catch",
+		innerType,
+		catchValue: typeof catchValue === "function" ? catchValue : () => catchValue
+	});
+}
+const ZodPipe = /* @__PURE__ */ $constructor("ZodPipe", (inst, def) => {
+	$ZodPipe.init(inst, def);
+	ZodType.init(inst, def);
+	inst._zod.processJSONSchema = (ctx, json, params) => pipeProcessor(inst, ctx, json, params);
+	inst.in = def.in;
+	inst.out = def.out;
+});
+function pipe(in_, out) {
+	return new ZodPipe({
+		type: "pipe",
+		in: in_,
+		out
+	});
+}
+const ZodReadonly = /* @__PURE__ */ $constructor("ZodReadonly", (inst, def) => {
+	$ZodReadonly.init(inst, def);
+	ZodType.init(inst, def);
+	inst._zod.processJSONSchema = (ctx, json, params) => readonlyProcessor(inst, ctx, json, params);
+	inst.unwrap = () => inst._zod.def.innerType;
+});
+function readonly(innerType) {
+	return new ZodReadonly({
+		type: "readonly",
+		innerType
+	});
+}
+const ZodCustom = /* @__PURE__ */ $constructor("ZodCustom", (inst, def) => {
+	$ZodCustom.init(inst, def);
+	ZodType.init(inst, def);
+	inst._zod.processJSONSchema = (ctx, json, params) => customProcessor(inst, ctx, json, params);
+});
+function refine(fn, _params = {}) {
+	return _refine(ZodCustom, fn, _params);
+}
+function superRefine(fn) {
+	return _superRefine(fn);
+}
+const describe = describe$1;
+const meta = meta$1;
+
+//#endregion
+//#region src/action/config/schema.ts
+const manifestTypes = [
+	"node-package-json",
+	"rust-cargo-toml",
+	"python-pyproject-toml"
+];
+const bumpTypes = [
+	"major",
+	"minor",
+	"patch",
+	"none"
+];
+const rangeStrategy = [
+	"explicit",
+	"latest-tag",
+	"latest-tag-with-prefix"
+];
+const noBumpPolicies = [
+	"skip",
+	"keep",
+	"patch"
+];
+const defaultBumpRules = {
+	feat: "minor",
+	fix: "patch",
+	perf: "patch",
+	refactor: "patch",
+	docs: "none",
+	chore: "none",
+	test: "none",
+	ci: "none",
+	style: "none"
+};
+const ReleasePrConfigSchema = object({
+	enabled: boolean().describe("Whether to create/update a live release pull request"),
+	branchPrefix: string().optional().describe("An optional prefix for the release PR branch name (e.g. \"rellu/app1/\")"),
+	baseBranch: string().optional().describe("The base branch to use for the release PR (defaults to the default branch of the repository)")
+});
+const VersionSource = object({
+	file: string().describe("Path to the file containing the version information"),
+	type: _enum(manifestTypes).describe("The type of project manifest file to parse for version information")
+});
+const TargetSchema = object({
+	label: string().describe("A human-readable label for the target"),
+	paths: array(string()).refine((paths) => {
+		try {
+			paths.forEach((p) => pathUtils.glob.validate(p));
+			return true;
+		} catch {
+			return false;
+		}
+	}, "Invalid glob pattern in target paths").describe("List of file paths or glob patterns to watch for changes"),
+	version: VersionSource.describe("Configuration for how to extract version information for this target"),
+	tagPrefix: string().default("v").describe("An optional prefix to find tags that represent versions for this target (e.g. \"foo@v\" to match tags like \"foo@v1.2.3\")"),
+	releasePr: ReleasePrConfigSchema.describe("Configuration for the release pull request to create/update for this target").default({ enabled: false })
+});
+const ChangelogConfigSchema = object({
+	categoryMap: record(string(), string()).default({
+		feat: "Features",
+		fix: "Bug Fixes",
+		docs: "Documentation",
+		perf: "Performance",
+		refactor: "Refactoring",
+		build: "Other",
+		ci: "CI",
+		chore: "Chores",
+		test: "Tests",
+		style: "Other",
+		other: "Other"
+	}).describe("Mapping of commit types to changelog categories (e.g. \"feat\" -> \"Features\")"),
+	sectionOrder: array(string()).default([
+		"Features",
+		"Bug Fixes",
+		"Documentation",
+		"Performance",
+		"Refactoring",
+		"CI",
+		"Chores",
+		"Tests",
+		"Other"
+	]).describe("The order in which to display sections in the generated changelog.")
+}).describe("Configuration for how to generate the changelog content");
+/** schema for the rellu.json file */
+const ConfigFileSchema = object({
+	targets: array(TargetSchema),
+	changelog: ChangelogConfigSchema.optional(),
+	bumpRules: record(string(), _enum(bumpTypes)).default(defaultBumpRules).optional()
+}).describe("The configuration loaded from the rellu.json file in the repository");
+const RelluActionInputsSchema = object({
+	configPath: string().default(".github/rellu.json"),
+	githubToken: string().optional(),
+	fromRef: string().optional(),
+	toRef: string().optional().default("HEAD"),
+	rangeStrategy: _enum(rangeStrategy).default("explicit"),
+	strictConventionalCommits: boolean().default(false),
+	noBumpPolicy: _enum(noBumpPolicies).default("skip"),
+	createReleasePr: boolean().default(false),
+	releaseBranchPrefix: string().default("rellu/release"),
+	baseBranch: string(),
+	repo: string(),
+	releaseCommitMessagePattern: string().default("release({target}): 🔖 v{version}")
+}).describe("The inputs provided to the GitHub Action (e.g. via workflow YAML)");
+/** overall configuration schema for the action, including action inputs and the config file */
+const RelluConfigSchema = object({
+	config: ConfigFileSchema,
+	inputs: RelluActionInputsSchema
+});
+
+//#endregion
+//#region src/action/config/config-file.ts
+const load$1 = (path) => {
+	const absulutePath = resolve(path);
+	if (!existsSync$1(absulutePath)) throw new Error(`Config file not found at path: ${absulutePath}`);
+	const ext = extname(absulutePath).toLowerCase();
+	if (ext !== ".json" && ext !== ".jsonc") throw new Error(`Unsupported config file format: ${ext}. Use .json config file instead.`);
+	const rawData = readFileSync$1(absulutePath, "utf-8");
+	try {
+		const errors = [];
+		const configObject = parse$4(rawData, errors, { allowTrailingComma: true });
+		if (errors.length > 0) {
+			log.warn(`Config file at path ${absulutePath} has parsing errors:`);
+			errors.forEach((error) => {
+				log.warn(`  - ${JSON.stringify(error)}`);
+			});
+		}
+		return ConfigFileSchema.parse(configObject);
+	} catch (e) {
+		throw new Error(`Failed to parse config file at path: ${absulutePath}. Error: ${e instanceof Error ? e.message : String(e)}`);
+	}
+};
+const configFileLoader = { load: load$1 };
+
+//#endregion
+//#region src/action/config/index.ts
+/** same as getInput but returns undefined if the input is not set (instead of empty string) */
+const getInput = (name) => {
+	return getInput$1(name) || void 0;
+};
+const load = () => {
+	const configPath = getInput("config-file") || ".github/rellu.json";
+	const configFile = configFileLoader.load(configPath);
+	return RelluConfigSchema.parse({
+		config: configFile,
+		inputs: {
+			configPath: getInput("config-file"),
+			fromRef: getInput("from-ref"),
+			toRef: getInput("to-ref"),
+			createReleasePr: getInput("create-release-pr") === "true",
+			noBumpPolicy: getInput("no-bump-policy"),
+			rangeStrategy: getInput("range-strategy"),
+			releaseBranchPrefix: getInput("release-branch-prefix"),
+			strictConventionalCommits: getInput("strict-conventional-commits") === "true",
+			baseBranch: getInput("base-branch"),
+			githubToken: getInput("github-token"),
+			repo: getInput("repo"),
+			releaseCommitMessagePattern: getInput("release-commit-message-pattern") || "release({target}): 🔖 v{version}"
+		}
+	});
+};
+const configuration = { load };
+
+//#endregion
+//#region src/utils/cmd.ts
+const normalizeEnv = (env) => {
+	if (!env) return;
+	const normalized = {};
+	for (const [key, value] of Object.entries(env)) if (value !== void 0) normalized[key] = value;
+	return normalized;
+};
+const exec = async (command, args = [], options = {}) => {
+	const execOptions = {
+		ignoreReturnCode: true,
+		silent: options.silent ?? true
+	};
+	if (options.cwd) execOptions.cwd = options.cwd;
+	const env = normalizeEnv(options.env);
+	if (env) execOptions.env = env;
+	const output = await getExecOutput(command, args, { ...execOptions });
+	const result = {
+		stdout: output.stdout,
+		stderr: output.stderr,
+		code: output.exitCode
+	};
+	if (result.code !== 0) {
+		const message = [
+			`Command failed: ${command} ${args.join(" ")}`,
+			result.stderr.trim() ? `stderr: ${result.stderr.trim()}` : "",
+			result.stdout.trim() ? `stdout: ${result.stdout.trim()}` : ""
+		].filter(Boolean).join("\n");
+		throw new Error(message);
+	}
+	return result;
+};
+const cmd = { exec };
+
+//#endregion
+//#region src/action/git/operations/read/commit/commands.ts
+/** resolves the commit SHA that a ref (tag, branch) points to */
+const resolveCommit = async (ref) => {
+	const { stdout } = await cmd.exec("git", [
+		"rev-list",
+		"-n",
+		"1",
+		ref
+	]);
+	return stdout.trim();
+};
+/** lists files changed in a given commit SHA */
+const listCommitFiles = async (sha) => {
+	const { stdout } = await cmd.exec("git", [
+		"diff-tree",
+		"--no-commit-id",
+		"--name-only",
+		"-r",
+		"--first-parent",
+		"-m",
+		sha
+	]);
+	return pathUtils.dedupAndSort(stdout.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean));
+};
+/** retrieves metadata for a given commit SHA, including author info and message */
+const commitMetadata = async (sha) => {
+	const format = [
+		"%H",
+		"%P",
+		"%s",
+		"%b",
+		"--RELLU--",
+		"%an",
+		"--RELLU--",
+		"%ae"
+	].join("%n");
+	const { stdout } = await cmd.exec("git", [
+		"show",
+		"-s",
+		`--format=${format}`,
+		sha
+	]);
+	const [meta = "", authorName = "", authorEmail = ""] = stdout.split("--RELLU--");
+	const lines = meta.replace(/\r/g, "").split("\n");
+	const parsedSha = (lines.shift() ?? "").trim();
+	const parents = (lines.shift() ?? "").trim().split(" ").filter(Boolean);
+	const subject = lines.shift() ?? "";
+	const body = lines.join("\n").trim();
+	return {
+		sha: parsedSha || sha,
+		parents,
+		subject,
+		body,
+		authorName: authorName.trim(),
+		authorEmail: authorEmail.trim(),
+		isMerge: parents.length > 1
+	};
+};
+
+//#endregion
+//#region src/action/git/operations/read/commit/parsing.ts
+const HEADER_REGEX = /^([a-zA-Z][\w-]*)(?:\(([^)]+)\))?(!)?:\s+(.+)$/u;
+const EMOJI_REGEX = /\p{Extended_Pictographic}/u;
+const extractEmoji = (text) => {
+	const match = text.match(EMOJI_REGEX);
+	if (!match) return {
+		desc: text,
+		emoji: void 0
+	};
+	const emoji = match[0];
+	return {
+		emoji,
+		desc: text.replace(new RegExp(`^${emoji}\\s*`, "u"), "").trim()
+	};
+};
+const parseFooters = (body) => {
+	const footers = {};
+	for (const line of body.split(/\r?\n/u)) {
+		const match = line.match(/^([A-Za-z-]+):\s+(.+)$/u);
+		if (!match) continue;
+		const [, key, value] = match;
+		if (key && value) footers[key] = value.trim();
+	}
+	return footers;
+};
+const assertConventionalCommitValidity = (parsed, strict, targetLabel, sha, subject, options) => {
+	if (!parsed.valid && strict && !options.isMerge) throw new Error(`Invalid conventional commit for target "${targetLabel}" in strict mode: ${sha} "${subject}"`);
+	return parsed;
+};
+const resolveBumpFromCommits = (commits, bumpRules) => {
+	let highest = "none";
+	for (const commit of commits) {
+		const bump = commit.isBreaking ? "major" : bumpRules[commit.type] ?? bumpRules.other ?? "none";
+		if (bump === "major") return "major";
+		if (bump === "minor") highest = "minor";
+		else if (bump === "patch" && highest === "none") highest = "patch";
+	}
+	return highest;
+};
+const parseConventionalCommit = (subject, body) => {
+	const trimmedSubject = subject.trim();
+	const header = trimmedSubject.match(HEADER_REGEX);
+	const footerMap = parseFooters(body);
+	const hasBreakingFooter = /(^|\n)BREAKING CHANGE:\s+/u.test(body);
+	if (!header) {
+		const { emoji, desc } = extractEmoji(trimmedSubject);
+		return {
+			type: "other",
+			scope: null,
+			description: desc,
+			emoji: emoji || "",
+			isBreaking: hasBreakingFooter,
+			rawSubject: trimmedSubject,
+			body,
+			footers: footerMap,
+			valid: false
+		};
+	}
+	const [, type = "", scope = "", bang = "", description = ""] = header;
+	const { emoji, desc } = extractEmoji(description);
+	return {
+		type: type || "other",
+		scope: scope || null,
+		description: desc,
+		emoji: emoji || "",
+		isBreaking: bang === "!" || hasBreakingFooter,
+		rawSubject: trimmedSubject,
+		body,
+		footers: footerMap,
+		valid: true
+	};
+};
+
+//#endregion
+//#region src/action/github/operations/repo.ts
+function parseRepoIdentifier(repo) {
+	const parts = repo.split("/");
+	if (parts.length !== 2) return null;
+	const [rawOwner = "", rawName = ""] = parts;
+	const owner = rawOwner.trim();
+	const name = rawName.trim();
+	if (!owner || !name) return null;
+	return {
+		owner,
+		name
+	};
+}
+
+//#endregion
+//#region src/action/github/operations/commit.ts
+const getCommitAuthorLogin = (gh) => {
+	return async (repo, sha) => {
+		const response = await gh.rest.repos.getCommit({
+			owner: repo.owner,
+			repo: repo.name,
+			ref: sha
+		});
+		return String(response.data.author?.login ?? "");
+	};
+};
+const LOGIN_CACHE = {};
+const getUserLoginByEmail = (gh) => {
+	return async (email) => {
+		if (LOGIN_CACHE[email]) return LOGIN_CACHE[email];
+		const response = await gh.rest.search.users({
+			q: `${email} in:email`,
+			per_page: 1
+		});
+		LOGIN_CACHE[email] = String(response.data.items[0]?.login ?? "");
+		return LOGIN_CACHE[email];
+	};
+};
+const authorDisplay = (authorName, githubUsername) => {
+	if (githubUsername) return `@${githubUsername}`;
+	return authorName || "unknown";
+};
+const enrichCommit = (gh) => {
+	return async (commits, repo) => {
+		const parsed = parseRepoIdentifier(repo);
+		if (!parsed) return commits;
+		const updated = [];
+		for (const commit of commits) {
+			let resolvedUsername = "";
+			try {
+				resolvedUsername = (await getCommitAuthorLogin(gh)(parsed, commit.sha)).trim();
+			} catch (error) {
+				log.warn(`Could not resolve associated GitHub username for commit ${commit.sha}: ${String(error)}`);
+			}
+			if (!resolvedUsername && commit.authorEmail) try {
+				resolvedUsername = (await getUserLoginByEmail(gh)(commit.authorEmail)).trim();
+			} catch (error) {
+				log.warn(`Could not resolve GitHub username by email for commit ${commit.sha} (${commit.authorEmail}): ${String(error)}`);
+			}
+			updated.push({
+				...commit,
+				githubUsername: resolvedUsername,
+				authorDisplay: authorDisplay(commit.authorName, resolvedUsername)
+			});
+		}
+		return updated;
+	};
+};
+
+//#endregion
+//#region src/action/git/operations/read/tag.ts
+/** lists tags that are reachable from the given ref, sorted by creation date (newest first) */
+const listMergedTags = async (toRefSha) => {
+	const { stdout } = await cmd.exec("git", [
+		"tag",
+		"--merged",
+		toRefSha,
+		"--sort=-creatordate"
+	]);
+	return stdout.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean);
+};
+/**
+* resolves the git range start by finding the latest reachable tag from the given ref,
+* optionally filtered by a prefix. Falls back to the first commit if no matching tag is found.
+*/
+const resolveLatestTagStart = async (toRefSha, options) => {
+	const allTags = await listMergedTags(toRefSha);
+	const latestTag = (options.tagPrefix ? allTags.filter((tagName) => tagName.startsWith(options.tagPrefix ?? "")) : allTags)[0] ?? "";
+	if (latestTag) {
+		const tagCommit = await resolveCommit(latestTag);
+		log.info(options.tagPrefix ? `Resolved range start for target "${options.targetLabel}" from latest tag "${latestTag}" (prefix "${options.tagPrefix}").` : `Resolved range start from latest reachable tag "${latestTag}".`);
+		return tagCommit;
+	}
+	const firstCommit = await resolveFirstCommit(toRefSha);
+	if (!firstCommit) throw new Error(`Unable to resolve first commit for ${toRefSha}.`);
+	log.info(options.tagPrefix ? `No matching tag found for target "${options.targetLabel}" with prefix "${options.tagPrefix}". Falling back to first commit ${firstCommit}.` : `No reachable tags found for ${toRefSha}. Falling back to first commit ${firstCommit}.`);
+	return firstCommit;
+};
+
+//#endregion
+//#region src/action/git/operations/read/range.ts
+/** resolves a git ref (branch, tag, or commit-ish) to its corresponding commit SHA. */
+const resolveRef = async (ref) => {
+	const { stdout } = await cmd.exec("git", [
+		"rev-parse",
+		"--verify",
+		ref
+	]);
+	return stdout.trim();
+};
+/** resolves the first commit in the history leading to the given ref */
+const resolveFirstCommit = async (toRefSha) => {
+	return (await cmd.exec("git", [
+		"rev-list",
+		"--max-parents=0",
+		toRefSha
+	])).stdout.trim().split(/\r?\n/u).map((line) => line.trim()).filter(Boolean)[0] ?? "";
+};
+/** resolves a git range (e.g. "abc123..def456") to its corresponding commit SHAs */
+const resolveExplicitGitRange = async (fromRef, toRef) => {
+	const to = await resolveRef(toRef || "HEAD");
+	let from = fromRef;
+	if (!from) from = await resolveFirstCommit(to);
+	if (!from) throw new Error("Unable to resolve from-ref. Set input 'from-ref' explicitly.");
+	try {
+		from = await resolveRef(from);
+	} catch (error) {
+		if (fs.existsSync(".git/shallow")) throw new Error(`Failed to resolve from-ref "${fromRef}". Repository appears shallow. Use actions/checkout with fetch-depth: 0.`);
+		throw error;
+	}
+	log.info(`Resolved git range: ${from}..${to}`);
+	return {
+		from,
+		to,
+		expression: `${from}..${to}`
+	};
+};
+/**
+* resolves a git range based on the specified strategy (explicit, latest-tag, or
+* latest-tag-with-prefix)
+*/
+const resolveRange = async (options) => {
+	if (options.strategy === "explicit") {
+		if (!options.fromRef) throw new Error(`Range strategy "explicit" requires a from-ref. Set input 'from-ref' explicitly.`);
+		return resolveExplicitGitRange(options.fromRef, options.toRef);
+	}
+	const to = await resolveRef(options.toRef || "HEAD");
+	if (options.strategy === "latest-tag") {
+		const from = await resolveLatestTagStart(to, { targetLabel: options.targetLabel });
+		log.info(`Resolved git range for target "${options.targetLabel}" via latest-tag: ${from}..${to}`);
+		return {
+			from,
+			to,
+			expression: `${from}..${to}`
+		};
+	}
+	if (!options.tagPrefix) throw new Error(`Target "${options.targetLabel}" is missing tagPrefix for range-strategy latest-tag-with-prefix.`);
+	const from = await resolveLatestTagStart(to, {
+		targetLabel: options.targetLabel,
+		tagPrefix: options.tagPrefix
+	});
+	log.info(`Resolved git range for target "${options.targetLabel}" via latest-tag-with-prefix "${options.tagPrefix}": ${from}..${to}`);
+	return {
+		from,
+		to,
+		expression: `${from}..${to}`
+	};
+};
+/** collects commits in the given git range, including their metadata and changed files */
+const collectCommitsInRange = async (range) => {
+	const { stdout } = await cmd.exec("git", [
+		"rev-list",
+		"--reverse",
+		"--first-parent",
+		range
+	]);
+	const shas = stdout.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean);
+	const commits = [];
+	for (const sha of shas) {
+		const metadata = await commitMetadata(sha);
+		const files = await listCommitFiles(sha);
+		commits.push({
+			...metadata,
+			files,
+			githubUsername: "",
+			authorDisplay: authorDisplay(metadata.authorName, "")
+		});
+	}
+	log.info(`Collected ${commits.length} commits from ${range}`);
+	return commits;
+};
+
+//#endregion
+//#region src/action/git/operations/config.ts
+const set = async (key, value, global = false) => {
+	const args = ["config"];
+	if (global) args.push("--global");
+	args.push(key, value);
+	await cmd.exec("git", args);
+};
+const setUser = async (name, email, global = false) => {
+	await set("user.name", name, global);
+	await set("user.email", email, global);
+};
+
+//#endregion
+//#region src/action/git/operations/commiting.ts
+const addFiles = async (...filePaths) => {
+	await cmd.exec("git", ["add", ...filePaths]);
+};
+const isFileModified = async (filePath) => {
+	const { stdout } = await cmd.exec("git", [
+		"status",
+		"--porcelain",
+		"--",
+		filePath
+	]);
+	return !!stdout.trim();
+};
+const commitChanges = async (message, { verify } = { verify: true }) => {
+	const args = [
+		"commit",
+		"-m",
+		message
+	];
+	if (!verify) args.push("--no-verify");
+	await cmd.exec("git", args);
+};
+const pushBranch = async (remote, branch, { force } = { force: false }) => {
+	branch = force ? `+${branch}` : branch;
+	await cmd.exec("git", [
+		"push",
+		remote,
+		branch
+	]);
+};
+
+//#endregion
+//#region src/action/git/operations/branch.ts
+const prepareBranch = async (baseBranch, branch, { shouldSetUser } = { shouldSetUser: false }) => {
+	await cmd.exec("git", [
+		"fetch",
+		"origin",
+		baseBranch
+	]);
+	await cmd.exec("git", [
+		"checkout",
+		"-B",
+		branch,
+		`origin/${baseBranch}`
+	]);
+	if (shouldSetUser) await setUser("rellu[bot]", "rellu-bot@users.noreply.github.com");
+};
+
+//#endregion
+//#region src/action/git/index.ts
+/** client for peforming git operations */
+const git = {
+	config: {
+		setUser,
+		set
+	},
+	commits: {
+		resolve: resolveCommit,
+		metadata: commitMetadata,
+		listFiles: listCommitFiles,
+		conventional: {
+			parse: parseConventionalCommit,
+			valid: assertConventionalCommitValidity,
+			resolveBump: resolveBumpFromCommits
+		}
+	},
+	range: {
+		resolve: resolveRange,
+		resolveExplicit: resolveExplicitGitRange,
+		resolveFirstCommit,
+		resolveRef,
+		collectCommits: collectCommitsInRange
+	},
+	tag: {
+		listMerged: listMergedTags,
+		resolveLatestTagStart
+	},
+	branch: { prepare: prepareBranch },
+	add: addFiles,
+	commit: commitChanges,
+	isFileModified,
+	push: pushBranch
+};
+
+//#endregion
+//#region node_modules/@actions/github/lib/context.js
+var Context = class {
+	/**
+	* Hydrate the context from the environment
+	*/
+	constructor() {
+		var _a, _b, _c;
+		this.payload = {};
+		if (process.env.GITHUB_EVENT_PATH) if (existsSync(process.env.GITHUB_EVENT_PATH)) this.payload = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, { encoding: "utf8" }));
+		else {
+			const path = process.env.GITHUB_EVENT_PATH;
+			process.stdout.write(`GITHUB_EVENT_PATH ${path} does not exist${EOL}`);
+		}
+		this.eventName = process.env.GITHUB_EVENT_NAME;
+		this.sha = process.env.GITHUB_SHA;
+		this.ref = process.env.GITHUB_REF;
+		this.workflow = process.env.GITHUB_WORKFLOW;
+		this.action = process.env.GITHUB_ACTION;
+		this.actor = process.env.GITHUB_ACTOR;
+		this.job = process.env.GITHUB_JOB;
+		this.runAttempt = parseInt(process.env.GITHUB_RUN_ATTEMPT, 10);
+		this.runNumber = parseInt(process.env.GITHUB_RUN_NUMBER, 10);
+		this.runId = parseInt(process.env.GITHUB_RUN_ID, 10);
+		this.apiUrl = (_a = process.env.GITHUB_API_URL) !== null && _a !== void 0 ? _a : `https://api.github.com`;
+		this.serverUrl = (_b = process.env.GITHUB_SERVER_URL) !== null && _b !== void 0 ? _b : `https://github.com`;
+		this.graphqlUrl = (_c = process.env.GITHUB_GRAPHQL_URL) !== null && _c !== void 0 ? _c : `https://api.github.com/graphql`;
+	}
+	get issue() {
+		const payload = this.payload;
+		return Object.assign(Object.assign({}, this.repo), { number: (payload.issue || payload.pull_request || payload).number });
+	}
+	get repo() {
+		if (process.env.GITHUB_REPOSITORY) {
+			const [owner, repo] = process.env.GITHUB_REPOSITORY.split("/");
+			return {
+				owner,
+				repo
+			};
+		}
+		if (this.payload.repository) return {
+			owner: this.payload.repository.owner.login,
+			repo: this.payload.repository.name
+		};
+		throw new Error("context.repo requires a GITHUB_REPOSITORY environment variable like 'owner/repo'");
+	}
+};
+
+//#endregion
+//#region node_modules/@actions/github/node_modules/@actions/http-client/lib/proxy.js
+var require_proxy = /* @__PURE__ */ __commonJSMin(((exports) => {
+	Object.defineProperty(exports, "__esModule", { value: true });
+	exports.getProxyUrl = getProxyUrl;
+	exports.checkBypass = checkBypass;
+	function getProxyUrl(reqUrl) {
+		const usingSsl = reqUrl.protocol === "https:";
+		if (checkBypass(reqUrl)) return;
+		const proxyVar = (() => {
+			if (usingSsl) return process.env["https_proxy"] || process.env["HTTPS_PROXY"];
+			else return process.env["http_proxy"] || process.env["HTTP_PROXY"];
+		})();
+		if (proxyVar) try {
+			return new DecodedURL(proxyVar);
+		} catch (_a) {
+			if (!proxyVar.startsWith("http://") && !proxyVar.startsWith("https://")) return new DecodedURL(`http://${proxyVar}`);
+		}
+		else return;
+	}
+	function checkBypass(reqUrl) {
+		if (!reqUrl.hostname) return false;
+		const reqHost = reqUrl.hostname;
+		if (isLoopbackAddress(reqHost)) return true;
+		const noProxy = process.env["no_proxy"] || process.env["NO_PROXY"] || "";
+		if (!noProxy) return false;
+		let reqPort;
+		if (reqUrl.port) reqPort = Number(reqUrl.port);
+		else if (reqUrl.protocol === "http:") reqPort = 80;
+		else if (reqUrl.protocol === "https:") reqPort = 443;
+		const upperReqHosts = [reqUrl.hostname.toUpperCase()];
+		if (typeof reqPort === "number") upperReqHosts.push(`${upperReqHosts[0]}:${reqPort}`);
+		for (const upperNoProxyItem of noProxy.split(",").map((x) => x.trim().toUpperCase()).filter((x) => x)) if (upperNoProxyItem === "*" || upperReqHosts.some((x) => x === upperNoProxyItem || x.endsWith(`.${upperNoProxyItem}`) || upperNoProxyItem.startsWith(".") && x.endsWith(`${upperNoProxyItem}`))) return true;
+		return false;
+	}
+	function isLoopbackAddress(host) {
+		const hostLower = host.toLowerCase();
+		return hostLower === "localhost" || hostLower.startsWith("127.") || hostLower.startsWith("[::1]") || hostLower.startsWith("[0:0:0:0:0:0:0:1]");
+	}
+	var DecodedURL = class extends URL {
+		constructor(url, base) {
+			super(url, base);
+			this._decodedUsername = decodeURIComponent(super.username);
+			this._decodedPassword = decodeURIComponent(super.password);
+		}
+		get username() {
+			return this._decodedUsername;
+		}
+		get password() {
+			return this._decodedPassword;
+		}
+	};
+}));
+
+//#endregion
 //#region node_modules/@actions/github/node_modules/@actions/http-client/lib/index.js
 var require_lib = /* @__PURE__ */ __commonJSMin(((exports) => {
 	var __createBinding = exports && exports.__createBinding || (Object.create ? (function(o, m, k, k2) {
@@ -16416,8 +24590,7 @@ var require_lib = /* @__PURE__ */ __commonJSMin(((exports) => {
 //#endregion
 //#region node_modules/@actions/github/lib/internal/utils.js
 var import_lib = /* @__PURE__ */ __toESM(require_lib(), 1);
-var import_undici = require_undici();
-var __awaiter$10 = void 0 && (void 0).__awaiter || function(thisArg, _arguments, P, generator) {
+var __awaiter = void 0 && (void 0).__awaiter || function(thisArg, _arguments, P, generator) {
 	function adopt(value) {
 		return value instanceof P ? value : new P(function(resolve) {
 			resolve(value);
@@ -16457,7 +24630,7 @@ function getProxyAgentDispatcher(destinationUrl) {
 }
 function getProxyFetch(destinationUrl) {
 	const httpDispatcher = getProxyAgentDispatcher(destinationUrl);
-	const proxyFetch = (url, opts) => __awaiter$10(this, void 0, void 0, function* () {
+	const proxyFetch = (url, opts) => __awaiter(this, void 0, void 0, function* () {
 		return (0, import_undici.fetch)(url, Object.assign(Object.assign({}, opts), { dispatcher: httpDispatcher }));
 	});
 	return proxyFetch;
@@ -16740,7 +24913,7 @@ function expand(template, context) {
 	if (template === "/") return template;
 	else return template.replace(/\/$/, "");
 }
-function parse(options) {
+function parse$1(options) {
 	let method = options.method.toUpperCase();
 	let url = (options.url || "/").replace(/:([a-z]\w+)/g, "{$1}");
 	let headers = Object.assign({}, options.headers);
@@ -16777,7 +24950,7 @@ function parse(options) {
 	}, typeof body !== "undefined" ? { body } : null, options.request ? { request: options.request } : null);
 }
 function endpointWithDefaults(defaults, route, options) {
-	return parse(merge(defaults, route, options));
+	return parse$1(merge(defaults, route, options));
 }
 function withDefaults$2(oldDefaults, newDefaults) {
 	const DEFAULTS2 = merge(oldDefaults, newDefaults);
@@ -16786,7 +24959,7 @@ function withDefaults$2(oldDefaults, newDefaults) {
 		DEFAULTS: DEFAULTS2,
 		defaults: withDefaults$2.bind(null, DEFAULTS2),
 		merge: merge.bind(null, DEFAULTS2),
-		parse
+		parse: parse$1
 	});
 }
 var endpoint = withDefaults$2(null, DEFAULTS);
@@ -18904,2712 +27077,390 @@ function getOctokit(token, options, ...additionalPlugins) {
 }
 
 //#endregion
-//#region src/toolkit/github-client.ts
-function normalizeApiBase(apiBase) {
-	return apiBase.replace(/\/+$/u, "");
-}
-function toPullRequest(data) {
+//#region src/action/github/operations/pr.ts
+const toPr = (data) => {
 	return {
 		number: data.number,
 		htmlUrl: data.html_url,
 		title: String(data.title ?? ""),
 		headRef: String(data.head?.ref ?? "")
 	};
-}
-function parseRepoRef(repo) {
-	const parts = repo.split("/");
-	if (parts.length !== 2) return null;
-	const [rawOwner = "", rawName = ""] = parts;
-	const owner = rawOwner.trim();
-	const name = rawName.trim();
-	if (!owner || !name) return null;
+};
+const listPullRequsts = (gh) => {
+	return async (repo, options) => {
+		return (await gh.rest.pulls.list({
+			owner: repo.owner,
+			repo: repo.name,
+			state: options.state ?? "open",
+			base: options.base,
+			per_page: options.perPage ?? 100,
+			...options.head ? { head: options.head } : {}
+		})).data.map((pull) => toPr(pull));
+	};
+};
+const createPr = (gh) => {
+	return async (repo, options) => {
+		return toPr((await gh.rest.pulls.create({
+			owner: repo.owner,
+			repo: repo.name,
+			title: options.title,
+			head: options.head,
+			base: options.base,
+			body: options.body
+		})).data);
+	};
+};
+const updatePr = (gh) => {
+	return async (repo, pullNumber, options) => {
+		return toPr((await gh.rest.pulls.update({
+			owner: repo.owner,
+			repo: repo.name,
+			pull_number: pullNumber,
+			...options.title !== void 0 ? { title: options.title } : {},
+			...options.body !== void 0 ? { body: options.body } : {}
+		})).data);
+	};
+};
+
+//#endregion
+//#region src/action/github/index.ts
+const CACHE = {};
+const makeClient = (token) => {
+	const gh = getOctokit(token);
 	return {
-		owner,
-		name
-	};
-}
-function createGitHubClient(token, apiBase) {
-	const octokit = getOctokit(token, { baseUrl: normalizeApiBase(apiBase) });
-	return {
-		async listPulls(repo, options) {
-			return (await octokit.rest.pulls.list({
-				owner: repo.owner,
-				repo: repo.name,
-				state: options.state ?? "open",
-				base: options.base,
-				per_page: options.perPage ?? 100,
-				...options.head ? { head: options.head } : {}
-			})).data.map((pull) => toPullRequest(pull));
+		pr: {
+			list: listPullRequsts(gh),
+			create: createPr(gh),
+			update: updatePr(gh)
 		},
-		async createPull(repo, options) {
-			return toPullRequest((await octokit.rest.pulls.create({
-				owner: repo.owner,
-				repo: repo.name,
-				title: options.title,
-				head: options.head,
-				base: options.base,
-				body: options.body
-			})).data);
-		},
-		async updatePull(repo, pullNumber, options) {
-			return toPullRequest((await octokit.rest.pulls.update({
-				owner: repo.owner,
-				repo: repo.name,
-				pull_number: pullNumber,
-				...options.title !== void 0 ? { title: options.title } : {},
-				...options.body !== void 0 ? { body: options.body } : {}
-			})).data);
-		},
-		async getCommitAuthorLogin(repo, sha) {
-			const response = await octokit.rest.repos.getCommit({
-				owner: repo.owner,
-				repo: repo.name,
-				ref: sha
-			});
-			return String(response.data.author?.login ?? "");
-		},
-		async getUserLoginByEmail(email) {
-			const response = await octokit.rest.search.users({
-				q: `${email} in:email`,
-				per_page: 1
-			});
-			return String(response.data.items[0]?.login ?? "");
+		repo: { parseIdentifier: parseRepoIdentifier },
+		commit: {
+			getAuthor: getCommitAuthorLogin(gh),
+			getUserByEmail: getUserLoginByEmail(gh),
+			enrich: enrichCommit(gh)
 		}
 	};
-}
-
-//#endregion
-//#region node_modules/@actions/io/lib/io-util.js
-var __awaiter$9 = void 0 && (void 0).__awaiter || function(thisArg, _arguments, P, generator) {
-	function adopt(value) {
-		return value instanceof P ? value : new P(function(resolve) {
-			resolve(value);
-		});
-	}
-	return new (P || (P = Promise))(function(resolve, reject) {
-		function fulfilled(value) {
-			try {
-				step(generator.next(value));
-			} catch (e) {
-				reject(e);
-			}
-		}
-		function rejected(value) {
-			try {
-				step(generator["throw"](value));
-			} catch (e) {
-				reject(e);
-			}
-		}
-		function step(result) {
-			result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected);
-		}
-		step((generator = generator.apply(thisArg, _arguments || [])).next());
-	});
 };
-const { chmod, copyFile, lstat, mkdir, open, readdir, rename, rm, rmdir, stat, symlink, unlink } = fs$2.promises;
-const IS_WINDOWS$1 = process.platform === "win32";
-const READONLY = fs$2.constants.O_RDONLY;
-function exists(fsPath) {
-	return __awaiter$9(this, void 0, void 0, function* () {
-		try {
-			yield stat(fsPath);
-		} catch (err) {
-			if (err.code === "ENOENT") return false;
-			throw err;
-		}
-		return true;
-	});
-}
-/**
-* On OSX/Linux, true if path starts with '/'. On Windows, true for paths like:
-* \, \hello, \\hello\share, C:, and C:\hello (and corresponding alternate separator cases).
-*/
-function isRooted(p) {
-	p = normalizeSeparators(p);
-	if (!p) throw new Error("isRooted() parameter \"p\" cannot be empty");
-	if (IS_WINDOWS$1) return p.startsWith("\\") || /^[A-Z]:/i.test(p);
-	return p.startsWith("/");
-}
-/**
-* Best effort attempt to determine whether a file exists and is executable.
-* @param filePath    file path to check
-* @param extensions  additional file extensions to try
-* @return if file exists and is executable, returns the file path. otherwise empty string.
-*/
-function tryGetExecutablePath(filePath, extensions) {
-	return __awaiter$9(this, void 0, void 0, function* () {
-		let stats = void 0;
-		try {
-			stats = yield stat(filePath);
-		} catch (err) {
-			if (err.code !== "ENOENT") console.log(`Unexpected error attempting to determine if executable file exists '${filePath}': ${err}`);
-		}
-		if (stats && stats.isFile()) {
-			if (IS_WINDOWS$1) {
-				const upperExt = path$1.extname(filePath).toUpperCase();
-				if (extensions.some((validExt) => validExt.toUpperCase() === upperExt)) return filePath;
-			} else if (isUnixExecutable(stats)) return filePath;
-		}
-		const originalFilePath = filePath;
-		for (const extension of extensions) {
-			filePath = originalFilePath + extension;
-			stats = void 0;
-			try {
-				stats = yield stat(filePath);
-			} catch (err) {
-				if (err.code !== "ENOENT") console.log(`Unexpected error attempting to determine if executable file exists '${filePath}': ${err}`);
-			}
-			if (stats && stats.isFile()) {
-				if (IS_WINDOWS$1) {
-					try {
-						const directory = path$1.dirname(filePath);
-						const upperName = path$1.basename(filePath).toUpperCase();
-						for (const actualName of yield readdir(directory)) if (upperName === actualName.toUpperCase()) {
-							filePath = path$1.join(directory, actualName);
-							break;
-						}
-					} catch (err) {
-						console.log(`Unexpected error attempting to determine the actual case of the file '${filePath}': ${err}`);
-					}
-					return filePath;
-				} else if (isUnixExecutable(stats)) return filePath;
-			}
-		}
-		return "";
-	});
-}
-function normalizeSeparators(p) {
-	p = p || "";
-	if (IS_WINDOWS$1) {
-		p = p.replace(/\//g, "\\");
-		return p.replace(/\\\\+/g, "\\");
-	}
-	return p.replace(/\/\/+/g, "/");
-}
-function isUnixExecutable(stats) {
-	return (stats.mode & 1) > 0 || (stats.mode & 8) > 0 && process.getgid !== void 0 && stats.gid === process.getgid() || (stats.mode & 64) > 0 && process.getuid !== void 0 && stats.uid === process.getuid();
-}
-
-//#endregion
-//#region node_modules/@actions/io/lib/io.js
-var __awaiter$8 = void 0 && (void 0).__awaiter || function(thisArg, _arguments, P, generator) {
-	function adopt(value) {
-		return value instanceof P ? value : new P(function(resolve) {
-			resolve(value);
-		});
-	}
-	return new (P || (P = Promise))(function(resolve, reject) {
-		function fulfilled(value) {
-			try {
-				step(generator.next(value));
-			} catch (e) {
-				reject(e);
-			}
-		}
-		function rejected(value) {
-			try {
-				step(generator["throw"](value));
-			} catch (e) {
-				reject(e);
-			}
-		}
-		function step(result) {
-			result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected);
-		}
-		step((generator = generator.apply(thisArg, _arguments || [])).next());
-	});
-};
-/**
-* Make a directory.  Creates the full path with folders in between
-* Will throw if it fails
-*
-* @param   fsPath        path to create
-* @returns Promise<void>
-*/
-function mkdirP(fsPath) {
-	return __awaiter$8(this, void 0, void 0, function* () {
-		ok(fsPath, "a path argument must be provided");
-		yield mkdir(fsPath, { recursive: true });
-	});
-}
-/**
-* Returns path of a tool had the tool actually been invoked.  Resolves via paths.
-* If you check and the tool does not exist, it will throw.
-*
-* @param     tool              name of the tool
-* @param     check             whether to check if tool exists
-* @returns   Promise<string>   path to tool
-*/
-function which(tool, check) {
-	return __awaiter$8(this, void 0, void 0, function* () {
-		if (!tool) throw new Error("parameter 'tool' is required");
-		if (check) {
-			const result = yield which(tool, false);
-			if (!result) if (IS_WINDOWS$1) throw new Error(`Unable to locate executable file: ${tool}. Please verify either the file path exists or the file can be found within a directory specified by the PATH environment variable. Also verify the file has a valid extension for an executable file.`);
-			else throw new Error(`Unable to locate executable file: ${tool}. Please verify either the file path exists or the file can be found within a directory specified by the PATH environment variable. Also check the file mode to verify the file is executable.`);
-			return result;
-		}
-		const matches = yield findInPath(tool);
-		if (matches && matches.length > 0) return matches[0];
-		return "";
-	});
-}
-/**
-* Returns a list of all occurrences of the given tool on the system path.
-*
-* @returns   Promise<string[]>  the paths of the tool
-*/
-function findInPath(tool) {
-	return __awaiter$8(this, void 0, void 0, function* () {
-		if (!tool) throw new Error("parameter 'tool' is required");
-		const extensions = [];
-		if (IS_WINDOWS$1 && process.env["PATHEXT"]) {
-			for (const extension of process.env["PATHEXT"].split(path$1.delimiter)) if (extension) extensions.push(extension);
-		}
-		if (isRooted(tool)) {
-			const filePath = yield tryGetExecutablePath(tool, extensions);
-			if (filePath) return [filePath];
-			return [];
-		}
-		if (tool.includes(path$1.sep)) return [];
-		const directories = [];
-		if (process.env.PATH) {
-			for (const p of process.env.PATH.split(path$1.delimiter)) if (p) directories.push(p);
-		}
-		const matches = [];
-		for (const directory of directories) {
-			const filePath = yield tryGetExecutablePath(path$1.join(directory, tool), extensions);
-			if (filePath) matches.push(filePath);
-		}
-		return matches;
-	});
-}
-
-//#endregion
-//#region node_modules/@actions/exec/lib/toolrunner.js
-var __awaiter$7 = void 0 && (void 0).__awaiter || function(thisArg, _arguments, P, generator) {
-	function adopt(value) {
-		return value instanceof P ? value : new P(function(resolve) {
-			resolve(value);
-		});
-	}
-	return new (P || (P = Promise))(function(resolve, reject) {
-		function fulfilled(value) {
-			try {
-				step(generator.next(value));
-			} catch (e) {
-				reject(e);
-			}
-		}
-		function rejected(value) {
-			try {
-				step(generator["throw"](value));
-			} catch (e) {
-				reject(e);
-			}
-		}
-		function step(result) {
-			result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected);
-		}
-		step((generator = generator.apply(thisArg, _arguments || [])).next());
-	});
-};
-const IS_WINDOWS = process.platform === "win32";
-var ToolRunner = class extends events.EventEmitter {
-	constructor(toolPath, args, options) {
-		super();
-		if (!toolPath) throw new Error("Parameter 'toolPath' cannot be null or empty.");
-		this.toolPath = toolPath;
-		this.args = args || [];
-		this.options = options || {};
-	}
-	_debug(message) {
-		if (this.options.listeners && this.options.listeners.debug) this.options.listeners.debug(message);
-	}
-	_getCommandString(options, noPrefix) {
-		const toolPath = this._getSpawnFileName();
-		const args = this._getSpawnArgs(options);
-		let cmd = noPrefix ? "" : "[command]";
-		if (IS_WINDOWS) if (this._isCmdFile()) {
-			cmd += toolPath;
-			for (const a of args) cmd += ` ${a}`;
-		} else if (options.windowsVerbatimArguments) {
-			cmd += `"${toolPath}"`;
-			for (const a of args) cmd += ` ${a}`;
-		} else {
-			cmd += this._windowsQuoteCmdArg(toolPath);
-			for (const a of args) cmd += ` ${this._windowsQuoteCmdArg(a)}`;
-		}
-		else {
-			cmd += toolPath;
-			for (const a of args) cmd += ` ${a}`;
-		}
-		return cmd;
-	}
-	_processLineBuffer(data, strBuffer, onLine) {
-		try {
-			let s = strBuffer + data.toString();
-			let n = s.indexOf(os$1.EOL);
-			while (n > -1) {
-				onLine(s.substring(0, n));
-				s = s.substring(n + os$1.EOL.length);
-				n = s.indexOf(os$1.EOL);
-			}
-			return s;
-		} catch (err) {
-			this._debug(`error processing line. Failed with error ${err}`);
-			return "";
-		}
-	}
-	_getSpawnFileName() {
-		if (IS_WINDOWS) {
-			if (this._isCmdFile()) return process.env["COMSPEC"] || "cmd.exe";
-		}
-		return this.toolPath;
-	}
-	_getSpawnArgs(options) {
-		if (IS_WINDOWS) {
-			if (this._isCmdFile()) {
-				let argline = `/D /S /C "${this._windowsQuoteCmdArg(this.toolPath)}`;
-				for (const a of this.args) {
-					argline += " ";
-					argline += options.windowsVerbatimArguments ? a : this._windowsQuoteCmdArg(a);
-				}
-				argline += "\"";
-				return [argline];
-			}
-		}
-		return this.args;
-	}
-	_endsWith(str, end) {
-		return str.endsWith(end);
-	}
-	_isCmdFile() {
-		const upperToolPath = this.toolPath.toUpperCase();
-		return this._endsWith(upperToolPath, ".CMD") || this._endsWith(upperToolPath, ".BAT");
-	}
-	_windowsQuoteCmdArg(arg) {
-		if (!this._isCmdFile()) return this._uvQuoteCmdArg(arg);
-		if (!arg) return "\"\"";
-		const cmdSpecialChars = [
-			" ",
-			"	",
-			"&",
-			"(",
-			")",
-			"[",
-			"]",
-			"{",
-			"}",
-			"^",
-			"=",
-			";",
-			"!",
-			"'",
-			"+",
-			",",
-			"`",
-			"~",
-			"|",
-			"<",
-			">",
-			"\""
-		];
-		let needsQuotes = false;
-		for (const char of arg) if (cmdSpecialChars.some((x) => x === char)) {
-			needsQuotes = true;
-			break;
-		}
-		if (!needsQuotes) return arg;
-		let reverse = "\"";
-		let quoteHit = true;
-		for (let i = arg.length; i > 0; i--) {
-			reverse += arg[i - 1];
-			if (quoteHit && arg[i - 1] === "\\") reverse += "\\";
-			else if (arg[i - 1] === "\"") {
-				quoteHit = true;
-				reverse += "\"";
-			} else quoteHit = false;
-		}
-		reverse += "\"";
-		return reverse.split("").reverse().join("");
-	}
-	_uvQuoteCmdArg(arg) {
-		if (!arg) return "\"\"";
-		if (!arg.includes(" ") && !arg.includes("	") && !arg.includes("\"")) return arg;
-		if (!arg.includes("\"") && !arg.includes("\\")) return `"${arg}"`;
-		let reverse = "\"";
-		let quoteHit = true;
-		for (let i = arg.length; i > 0; i--) {
-			reverse += arg[i - 1];
-			if (quoteHit && arg[i - 1] === "\\") reverse += "\\";
-			else if (arg[i - 1] === "\"") {
-				quoteHit = true;
-				reverse += "\\";
-			} else quoteHit = false;
-		}
-		reverse += "\"";
-		return reverse.split("").reverse().join("");
-	}
-	_cloneExecOptions(options) {
-		options = options || {};
-		const result = {
-			cwd: options.cwd || process.cwd(),
-			env: options.env || process.env,
-			silent: options.silent || false,
-			windowsVerbatimArguments: options.windowsVerbatimArguments || false,
-			failOnStdErr: options.failOnStdErr || false,
-			ignoreReturnCode: options.ignoreReturnCode || false,
-			delay: options.delay || 1e4
-		};
-		result.outStream = options.outStream || process.stdout;
-		result.errStream = options.errStream || process.stderr;
-		return result;
-	}
-	_getSpawnOptions(options, toolPath) {
-		options = options || {};
-		const result = {};
-		result.cwd = options.cwd;
-		result.env = options.env;
-		result["windowsVerbatimArguments"] = options.windowsVerbatimArguments || this._isCmdFile();
-		if (options.windowsVerbatimArguments) result.argv0 = `"${toolPath}"`;
-		return result;
-	}
-	/**
-	* Exec a tool.
-	* Output will be streamed to the live console.
-	* Returns promise with return code
-	*
-	* @param     tool     path to tool to exec
-	* @param     options  optional exec options.  See ExecOptions
-	* @returns   number
-	*/
-	exec() {
-		return __awaiter$7(this, void 0, void 0, function* () {
-			if (!isRooted(this.toolPath) && (this.toolPath.includes("/") || IS_WINDOWS && this.toolPath.includes("\\"))) this.toolPath = path$1.resolve(process.cwd(), this.options.cwd || process.cwd(), this.toolPath);
-			this.toolPath = yield which(this.toolPath, true);
-			return new Promise((resolve, reject) => __awaiter$7(this, void 0, void 0, function* () {
-				this._debug(`exec tool: ${this.toolPath}`);
-				this._debug("arguments:");
-				for (const arg of this.args) this._debug(`   ${arg}`);
-				const optionsNonNull = this._cloneExecOptions(this.options);
-				if (!optionsNonNull.silent && optionsNonNull.outStream) optionsNonNull.outStream.write(this._getCommandString(optionsNonNull) + os$1.EOL);
-				const state = new ExecState(optionsNonNull, this.toolPath);
-				state.on("debug", (message) => {
-					this._debug(message);
-				});
-				if (this.options.cwd && !(yield exists(this.options.cwd))) return reject(/* @__PURE__ */ new Error(`The cwd: ${this.options.cwd} does not exist!`));
-				const fileName = this._getSpawnFileName();
-				const cp = child.spawn(fileName, this._getSpawnArgs(optionsNonNull), this._getSpawnOptions(this.options, fileName));
-				let stdbuffer = "";
-				if (cp.stdout) cp.stdout.on("data", (data) => {
-					if (this.options.listeners && this.options.listeners.stdout) this.options.listeners.stdout(data);
-					if (!optionsNonNull.silent && optionsNonNull.outStream) optionsNonNull.outStream.write(data);
-					stdbuffer = this._processLineBuffer(data, stdbuffer, (line) => {
-						if (this.options.listeners && this.options.listeners.stdline) this.options.listeners.stdline(line);
-					});
-				});
-				let errbuffer = "";
-				if (cp.stderr) cp.stderr.on("data", (data) => {
-					state.processStderr = true;
-					if (this.options.listeners && this.options.listeners.stderr) this.options.listeners.stderr(data);
-					if (!optionsNonNull.silent && optionsNonNull.errStream && optionsNonNull.outStream) (optionsNonNull.failOnStdErr ? optionsNonNull.errStream : optionsNonNull.outStream).write(data);
-					errbuffer = this._processLineBuffer(data, errbuffer, (line) => {
-						if (this.options.listeners && this.options.listeners.errline) this.options.listeners.errline(line);
-					});
-				});
-				cp.on("error", (err) => {
-					state.processError = err.message;
-					state.processExited = true;
-					state.processClosed = true;
-					state.CheckComplete();
-				});
-				cp.on("exit", (code) => {
-					state.processExitCode = code;
-					state.processExited = true;
-					this._debug(`Exit code ${code} received from tool '${this.toolPath}'`);
-					state.CheckComplete();
-				});
-				cp.on("close", (code) => {
-					state.processExitCode = code;
-					state.processExited = true;
-					state.processClosed = true;
-					this._debug(`STDIO streams have closed for tool '${this.toolPath}'`);
-					state.CheckComplete();
-				});
-				state.on("done", (error, exitCode) => {
-					if (stdbuffer.length > 0) this.emit("stdline", stdbuffer);
-					if (errbuffer.length > 0) this.emit("errline", errbuffer);
-					cp.removeAllListeners();
-					if (error) reject(error);
-					else resolve(exitCode);
-				});
-				if (this.options.input) {
-					if (!cp.stdin) throw new Error("child process missing stdin");
-					cp.stdin.end(this.options.input);
-				}
-			}));
-		});
-	}
-};
-/**
-* Convert an arg string to an array of args. Handles escaping
-*
-* @param    argString   string of arguments
-* @returns  string[]    array of arguments
-*/
-function argStringToArray(argString) {
-	const args = [];
-	let inQuotes = false;
-	let escaped = false;
-	let arg = "";
-	function append(c) {
-		if (escaped && c !== "\"") arg += "\\";
-		arg += c;
-		escaped = false;
-	}
-	for (let i = 0; i < argString.length; i++) {
-		const c = argString.charAt(i);
-		if (c === "\"") {
-			if (!escaped) inQuotes = !inQuotes;
-			else append(c);
-			continue;
-		}
-		if (c === "\\" && escaped) {
-			append(c);
-			continue;
-		}
-		if (c === "\\" && inQuotes) {
-			escaped = true;
-			continue;
-		}
-		if (c === " " && !inQuotes) {
-			if (arg.length > 0) {
-				args.push(arg);
-				arg = "";
-			}
-			continue;
-		}
-		append(c);
-	}
-	if (arg.length > 0) args.push(arg.trim());
-	return args;
-}
-var ExecState = class ExecState extends events.EventEmitter {
-	constructor(options, toolPath) {
-		super();
-		this.processClosed = false;
-		this.processError = "";
-		this.processExitCode = 0;
-		this.processExited = false;
-		this.processStderr = false;
-		this.delay = 1e4;
-		this.done = false;
-		this.timeout = null;
-		if (!toolPath) throw new Error("toolPath must not be empty");
-		this.options = options;
-		this.toolPath = toolPath;
-		if (options.delay) this.delay = options.delay;
-	}
-	CheckComplete() {
-		if (this.done) return;
-		if (this.processClosed) this._setResult();
-		else if (this.processExited) this.timeout = setTimeout$1(ExecState.HandleTimeout, this.delay, this);
-	}
-	_debug(message) {
-		this.emit("debug", message);
-	}
-	_setResult() {
-		let error;
-		if (this.processExited) {
-			if (this.processError) error = /* @__PURE__ */ new Error(`There was an error when attempting to execute the process '${this.toolPath}'. This may indicate the process failed to start. Error: ${this.processError}`);
-			else if (this.processExitCode !== 0 && !this.options.ignoreReturnCode) error = /* @__PURE__ */ new Error(`The process '${this.toolPath}' failed with exit code ${this.processExitCode}`);
-			else if (this.processStderr && this.options.failOnStdErr) error = /* @__PURE__ */ new Error(`The process '${this.toolPath}' failed because one or more lines were written to the STDERR stream`);
-		}
-		if (this.timeout) {
-			clearTimeout(this.timeout);
-			this.timeout = null;
-		}
-		this.done = true;
-		this.emit("done", error, this.processExitCode);
-	}
-	static HandleTimeout(state) {
-		if (state.done) return;
-		if (!state.processClosed && state.processExited) {
-			const message = `The STDIO streams did not close within ${state.delay / 1e3} seconds of the exit event from process '${state.toolPath}'. This may indicate a child process inherited the STDIO streams and has not yet exited.`;
-			state._debug(message);
-		}
-		state._setResult();
-	}
+/** returns an authenticated client with convenient methods for interacting with github */
+const getGh = (inputs) => {
+	const token = inputs.githubToken;
+	if (!token) throw new Error("GitHub token is required to interact with the GitHub API. Set the \"github-token\" input.");
+	if (CACHE[token]) return CACHE[token];
+	const client = makeClient(token);
+	CACHE[token] = client;
+	return client;
 };
 
 //#endregion
-//#region node_modules/@actions/exec/lib/exec.js
-var __awaiter$6 = void 0 && (void 0).__awaiter || function(thisArg, _arguments, P, generator) {
-	function adopt(value) {
-		return value instanceof P ? value : new P(function(resolve) {
-			resolve(value);
-		});
-	}
-	return new (P || (P = Promise))(function(resolve, reject) {
-		function fulfilled(value) {
-			try {
-				step(generator.next(value));
-			} catch (e) {
-				reject(e);
-			}
-		}
-		function rejected(value) {
-			try {
-				step(generator["throw"](value));
-			} catch (e) {
-				reject(e);
-			}
-		}
-		function step(result) {
-			result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected);
-		}
-		step((generator = generator.apply(thisArg, _arguments || [])).next());
-	});
+//#region src/utils/io.ts
+const ensureParentDirectory = async (filePath) => {
+	const directory = path.dirname(path.resolve(filePath));
+	await mkdirP(directory);
 };
-/**
-* Exec a command.
-* Output will be streamed to the live console.
-* Returns promise with return code
-*
-* @param     commandLine        command to execute (can include additional args). Must be correctly escaped.
-* @param     args               optional arguments for tool. Escaping is handled by the lib.
-* @param     options            optional exec options.  See ExecOptions
-* @returns   Promise<number>    exit code
-*/
-function exec(commandLine, args, options) {
-	return __awaiter$6(this, void 0, void 0, function* () {
-		const commandArgs = argStringToArray(commandLine);
-		if (commandArgs.length === 0) throw new Error(`Parameter 'commandLine' cannot be null or empty.`);
-		const toolPath = commandArgs[0];
-		args = commandArgs.slice(1).concat(args || []);
-		return new ToolRunner(toolPath, args, options).exec();
-	});
-}
-/**
-* Exec a command and get the output.
-* Output will be streamed to the live console.
-* Returns promise with the exit code and collected stdout and stderr
-*
-* @param     commandLine           command to execute (can include additional args). Must be correctly escaped.
-* @param     args                  optional arguments for tool. Escaping is handled by the lib.
-* @param     options               optional exec options.  See ExecOptions
-* @returns   Promise<ExecOutput>   exit code, stdout, and stderr
-*/
-function getExecOutput(commandLine, args, options) {
-	return __awaiter$6(this, void 0, void 0, function* () {
-		var _a, _b;
-		let stdout = "";
-		let stderr = "";
-		const stdoutDecoder = new StringDecoder("utf8");
-		const stderrDecoder = new StringDecoder("utf8");
-		const originalStdoutListener = (_a = options === null || options === void 0 ? void 0 : options.listeners) === null || _a === void 0 ? void 0 : _a.stdout;
-		const originalStdErrListener = (_b = options === null || options === void 0 ? void 0 : options.listeners) === null || _b === void 0 ? void 0 : _b.stderr;
-		const stdErrListener = (data) => {
-			stderr += stderrDecoder.write(data);
-			if (originalStdErrListener) originalStdErrListener(data);
-		};
-		const stdOutListener = (data) => {
-			stdout += stdoutDecoder.write(data);
-			if (originalStdoutListener) originalStdoutListener(data);
-		};
-		const listeners = Object.assign(Object.assign({}, options === null || options === void 0 ? void 0 : options.listeners), {
-			stdout: stdOutListener,
-			stderr: stdErrListener
-		});
-		const exitCode = yield exec(commandLine, args, Object.assign(Object.assign({}, options), { listeners }));
-		stdout += stdoutDecoder.end();
-		stderr += stderrDecoder.end();
-		return {
-			exitCode,
-			stdout,
-			stderr
-		};
-	});
-}
+const io = { ensureParentDir: ensureParentDirectory };
 
 //#endregion
-//#region src/toolkit/exec-client.ts
-function normalizeEnv(env) {
-	if (!env) return;
-	const normalized = {};
-	for (const [key, value] of Object.entries(env)) if (value !== void 0) normalized[key] = value;
-	return normalized;
-}
-async function runCommand(command, args, options = {}) {
-	const execOptions = {
-		ignoreReturnCode: true,
-		silent: options.silent ?? true
-	};
-	if (options.cwd) execOptions.cwd = options.cwd;
-	const normalizedEnv = normalizeEnv(options.env);
-	if (normalizedEnv) execOptions.env = normalizedEnv;
-	const output = await getExecOutput(command, args, { ...execOptions });
-	const result = {
-		stdout: output.stdout,
-		stderr: output.stderr,
-		code: output.exitCode
-	};
-	if (result.code !== 0) {
-		const message = [
-			`Command failed: ${command} ${args.join(" ")}`,
-			result.stderr.trim() ? `stderr: ${result.stderr.trim()}` : "",
-			result.stdout.trim() ? `stdout: ${result.stdout.trim()}` : ""
-		].filter(Boolean).join("\n");
-		throw new Error(message);
-	}
-	return result;
-}
-
-//#endregion
-//#region node_modules/picomatch/lib/constants.js
-var require_constants = /* @__PURE__ */ __commonJSMin(((exports, module) => {
-	const WIN_SLASH = "\\\\/";
-	const WIN_NO_SLASH = `[^${WIN_SLASH}]`;
-	/**
-	* Posix glob regex
-	*/
-	const DOT_LITERAL = "\\.";
-	const PLUS_LITERAL = "\\+";
-	const QMARK_LITERAL = "\\?";
-	const SLASH_LITERAL = "\\/";
-	const ONE_CHAR = "(?=.)";
-	const QMARK = "[^/]";
-	const END_ANCHOR = `(?:${SLASH_LITERAL}|$)`;
-	const START_ANCHOR = `(?:^|${SLASH_LITERAL})`;
-	const DOTS_SLASH = `${DOT_LITERAL}{1,2}${END_ANCHOR}`;
-	const POSIX_CHARS = {
-		DOT_LITERAL,
-		PLUS_LITERAL,
-		QMARK_LITERAL,
-		SLASH_LITERAL,
-		ONE_CHAR,
-		QMARK,
-		END_ANCHOR,
-		DOTS_SLASH,
-		NO_DOT: `(?!${DOT_LITERAL})`,
-		NO_DOTS: `(?!${START_ANCHOR}${DOTS_SLASH})`,
-		NO_DOT_SLASH: `(?!${DOT_LITERAL}{0,1}${END_ANCHOR})`,
-		NO_DOTS_SLASH: `(?!${DOTS_SLASH})`,
-		QMARK_NO_DOT: `[^.${SLASH_LITERAL}]`,
-		STAR: `${QMARK}*?`,
-		START_ANCHOR,
-		SEP: "/"
-	};
-	/**
-	* Windows glob regex
-	*/
-	const WINDOWS_CHARS = {
-		...POSIX_CHARS,
-		SLASH_LITERAL: `[${WIN_SLASH}]`,
-		QMARK: WIN_NO_SLASH,
-		STAR: `${WIN_NO_SLASH}*?`,
-		DOTS_SLASH: `${DOT_LITERAL}{1,2}(?:[${WIN_SLASH}]|$)`,
-		NO_DOT: `(?!${DOT_LITERAL})`,
-		NO_DOTS: `(?!(?:^|[${WIN_SLASH}])${DOT_LITERAL}{1,2}(?:[${WIN_SLASH}]|$))`,
-		NO_DOT_SLASH: `(?!${DOT_LITERAL}{0,1}(?:[${WIN_SLASH}]|$))`,
-		NO_DOTS_SLASH: `(?!${DOT_LITERAL}{1,2}(?:[${WIN_SLASH}]|$))`,
-		QMARK_NO_DOT: `[^.${WIN_SLASH}]`,
-		START_ANCHOR: `(?:^|[${WIN_SLASH}])`,
-		END_ANCHOR: `(?:[${WIN_SLASH}]|$)`,
-		SEP: "\\"
-	};
-	/**
-	* POSIX Bracket Regex
-	*/
-	const POSIX_REGEX_SOURCE = {
-		alnum: "a-zA-Z0-9",
-		alpha: "a-zA-Z",
-		ascii: "\\x00-\\x7F",
-		blank: " \\t",
-		cntrl: "\\x00-\\x1F\\x7F",
-		digit: "0-9",
-		graph: "\\x21-\\x7E",
-		lower: "a-z",
-		print: "\\x20-\\x7E ",
-		punct: "\\-!\"#$%&'()\\*+,./:;<=>?@[\\]^_`{|}~",
-		space: " \\t\\r\\n\\v\\f",
-		upper: "A-Z",
-		word: "A-Za-z0-9_",
-		xdigit: "A-Fa-f0-9"
-	};
-	module.exports = {
-		MAX_LENGTH: 1024 * 64,
-		POSIX_REGEX_SOURCE,
-		REGEX_BACKSLASH: /\\(?![*+?^${}(|)[\]])/g,
-		REGEX_NON_SPECIAL_CHARS: /^[^@![\].,$*+?^{}()|\\/]+/,
-		REGEX_SPECIAL_CHARS: /[-*+?.^${}(|)[\]]/,
-		REGEX_SPECIAL_CHARS_BACKREF: /(\\?)((\W)(\3*))/g,
-		REGEX_SPECIAL_CHARS_GLOBAL: /([-*+?.^${}(|)[\]])/g,
-		REGEX_REMOVE_BACKSLASH: /(?:\[.*?[^\\]\]|\\(?=.))/g,
-		REPLACEMENTS: {
-			__proto__: null,
-			"***": "*",
-			"**/**": "**",
-			"**/**/**": "**"
-		},
-		CHAR_0: 48,
-		CHAR_9: 57,
-		CHAR_UPPERCASE_A: 65,
-		CHAR_LOWERCASE_A: 97,
-		CHAR_UPPERCASE_Z: 90,
-		CHAR_LOWERCASE_Z: 122,
-		CHAR_LEFT_PARENTHESES: 40,
-		CHAR_RIGHT_PARENTHESES: 41,
-		CHAR_ASTERISK: 42,
-		CHAR_AMPERSAND: 38,
-		CHAR_AT: 64,
-		CHAR_BACKWARD_SLASH: 92,
-		CHAR_CARRIAGE_RETURN: 13,
-		CHAR_CIRCUMFLEX_ACCENT: 94,
-		CHAR_COLON: 58,
-		CHAR_COMMA: 44,
-		CHAR_DOT: 46,
-		CHAR_DOUBLE_QUOTE: 34,
-		CHAR_EQUAL: 61,
-		CHAR_EXCLAMATION_MARK: 33,
-		CHAR_FORM_FEED: 12,
-		CHAR_FORWARD_SLASH: 47,
-		CHAR_GRAVE_ACCENT: 96,
-		CHAR_HASH: 35,
-		CHAR_HYPHEN_MINUS: 45,
-		CHAR_LEFT_ANGLE_BRACKET: 60,
-		CHAR_LEFT_CURLY_BRACE: 123,
-		CHAR_LEFT_SQUARE_BRACKET: 91,
-		CHAR_LINE_FEED: 10,
-		CHAR_NO_BREAK_SPACE: 160,
-		CHAR_PERCENT: 37,
-		CHAR_PLUS: 43,
-		CHAR_QUESTION_MARK: 63,
-		CHAR_RIGHT_ANGLE_BRACKET: 62,
-		CHAR_RIGHT_CURLY_BRACE: 125,
-		CHAR_RIGHT_SQUARE_BRACKET: 93,
-		CHAR_SEMICOLON: 59,
-		CHAR_SINGLE_QUOTE: 39,
-		CHAR_SPACE: 32,
-		CHAR_TAB: 9,
-		CHAR_UNDERSCORE: 95,
-		CHAR_VERTICAL_LINE: 124,
-		CHAR_ZERO_WIDTH_NOBREAK_SPACE: 65279,
-		extglobChars(chars) {
-			return {
-				"!": {
-					type: "negate",
-					open: "(?:(?!(?:",
-					close: `))${chars.STAR})`
-				},
-				"?": {
-					type: "qmark",
-					open: "(?:",
-					close: ")?"
-				},
-				"+": {
-					type: "plus",
-					open: "(?:",
-					close: ")+"
-				},
-				"*": {
-					type: "star",
-					open: "(?:",
-					close: ")*"
-				},
-				"@": {
-					type: "at",
-					open: "(?:",
-					close: ")"
-				}
-			};
-		},
-		globChars(win32) {
-			return win32 === true ? WINDOWS_CHARS : POSIX_CHARS;
-		}
-	};
-}));
-
-//#endregion
-//#region node_modules/picomatch/lib/utils.js
-var require_utils = /* @__PURE__ */ __commonJSMin(((exports) => {
-	const { REGEX_BACKSLASH, REGEX_REMOVE_BACKSLASH, REGEX_SPECIAL_CHARS, REGEX_SPECIAL_CHARS_GLOBAL } = require_constants();
-	exports.isObject = (val) => val !== null && typeof val === "object" && !Array.isArray(val);
-	exports.hasRegexChars = (str) => REGEX_SPECIAL_CHARS.test(str);
-	exports.isRegexChar = (str) => str.length === 1 && exports.hasRegexChars(str);
-	exports.escapeRegex = (str) => str.replace(REGEX_SPECIAL_CHARS_GLOBAL, "\\$1");
-	exports.toPosixSlashes = (str) => str.replace(REGEX_BACKSLASH, "/");
-	exports.isWindows = () => {
-		if (typeof navigator !== "undefined" && navigator.platform) {
-			const platform = navigator.platform.toLowerCase();
-			return platform === "win32" || platform === "windows";
-		}
-		if (typeof process !== "undefined" && process.platform) return process.platform === "win32";
-		return false;
-	};
-	exports.removeBackslashes = (str) => {
-		return str.replace(REGEX_REMOVE_BACKSLASH, (match) => {
-			return match === "\\" ? "" : match;
-		});
-	};
-	exports.escapeLast = (input, char, lastIdx) => {
-		const idx = input.lastIndexOf(char, lastIdx);
-		if (idx === -1) return input;
-		if (input[idx - 1] === "\\") return exports.escapeLast(input, char, idx - 1);
-		return `${input.slice(0, idx)}\\${input.slice(idx)}`;
-	};
-	exports.removePrefix = (input, state = {}) => {
-		let output = input;
-		if (output.startsWith("./")) {
-			output = output.slice(2);
-			state.prefix = "./";
-		}
-		return output;
-	};
-	exports.wrapOutput = (input, state = {}, options = {}) => {
-		let output = `${options.contains ? "" : "^"}(?:${input})${options.contains ? "" : "$"}`;
-		if (state.negated === true) output = `(?:^(?!${output}).*$)`;
-		return output;
-	};
-	exports.basename = (path, { windows } = {}) => {
-		const segs = path.split(windows ? /[\\/]/ : "/");
-		const last = segs[segs.length - 1];
-		if (last === "") return segs[segs.length - 2];
-		return last;
-	};
-}));
-
-//#endregion
-//#region node_modules/picomatch/lib/scan.js
-var require_scan = /* @__PURE__ */ __commonJSMin(((exports, module) => {
-	const utils = require_utils();
-	const { CHAR_ASTERISK, CHAR_AT, CHAR_BACKWARD_SLASH, CHAR_COMMA, CHAR_DOT, CHAR_EXCLAMATION_MARK, CHAR_FORWARD_SLASH, CHAR_LEFT_CURLY_BRACE, CHAR_LEFT_PARENTHESES, CHAR_LEFT_SQUARE_BRACKET, CHAR_PLUS, CHAR_QUESTION_MARK, CHAR_RIGHT_CURLY_BRACE, CHAR_RIGHT_PARENTHESES, CHAR_RIGHT_SQUARE_BRACKET } = require_constants();
-	const isPathSeparator = (code) => {
-		return code === CHAR_FORWARD_SLASH || code === CHAR_BACKWARD_SLASH;
-	};
-	const depth = (token) => {
-		if (token.isPrefix !== true) token.depth = token.isGlobstar ? Infinity : 1;
-	};
-	/**
-	* Quickly scans a glob pattern and returns an object with a handful of
-	* useful properties, like `isGlob`, `path` (the leading non-glob, if it exists),
-	* `glob` (the actual pattern), `negated` (true if the path starts with `!` but not
-	* with `!(`) and `negatedExtglob` (true if the path starts with `!(`).
-	*
-	* ```js
-	* const pm = require('picomatch');
-	* console.log(pm.scan('foo/bar/*.js'));
-	* { isGlob: true, input: 'foo/bar/*.js', base: 'foo/bar', glob: '*.js' }
-	* ```
-	* @param {String} `str`
-	* @param {Object} `options`
-	* @return {Object} Returns an object with tokens and regex source string.
-	* @api public
-	*/
-	const scan = (input, options) => {
-		const opts = options || {};
-		const length = input.length - 1;
-		const scanToEnd = opts.parts === true || opts.scanToEnd === true;
-		const slashes = [];
-		const tokens = [];
-		const parts = [];
-		let str = input;
-		let index = -1;
-		let start = 0;
-		let lastIndex = 0;
-		let isBrace = false;
-		let isBracket = false;
-		let isGlob = false;
-		let isExtglob = false;
-		let isGlobstar = false;
-		let braceEscaped = false;
-		let backslashes = false;
-		let negated = false;
-		let negatedExtglob = false;
-		let finished = false;
-		let braces = 0;
-		let prev;
-		let code;
-		let token = {
-			value: "",
-			depth: 0,
-			isGlob: false
-		};
-		const eos = () => index >= length;
-		const peek = () => str.charCodeAt(index + 1);
-		const advance = () => {
-			prev = code;
-			return str.charCodeAt(++index);
-		};
-		while (index < length) {
-			code = advance();
-			let next;
-			if (code === CHAR_BACKWARD_SLASH) {
-				backslashes = token.backslashes = true;
-				code = advance();
-				if (code === CHAR_LEFT_CURLY_BRACE) braceEscaped = true;
-				continue;
-			}
-			if (braceEscaped === true || code === CHAR_LEFT_CURLY_BRACE) {
-				braces++;
-				while (eos() !== true && (code = advance())) {
-					if (code === CHAR_BACKWARD_SLASH) {
-						backslashes = token.backslashes = true;
-						advance();
-						continue;
-					}
-					if (code === CHAR_LEFT_CURLY_BRACE) {
-						braces++;
-						continue;
-					}
-					if (braceEscaped !== true && code === CHAR_DOT && (code = advance()) === CHAR_DOT) {
-						isBrace = token.isBrace = true;
-						isGlob = token.isGlob = true;
-						finished = true;
-						if (scanToEnd === true) continue;
-						break;
-					}
-					if (braceEscaped !== true && code === CHAR_COMMA) {
-						isBrace = token.isBrace = true;
-						isGlob = token.isGlob = true;
-						finished = true;
-						if (scanToEnd === true) continue;
-						break;
-					}
-					if (code === CHAR_RIGHT_CURLY_BRACE) {
-						braces--;
-						if (braces === 0) {
-							braceEscaped = false;
-							isBrace = token.isBrace = true;
-							finished = true;
-							break;
-						}
-					}
-				}
-				if (scanToEnd === true) continue;
-				break;
-			}
-			if (code === CHAR_FORWARD_SLASH) {
-				slashes.push(index);
-				tokens.push(token);
-				token = {
-					value: "",
-					depth: 0,
-					isGlob: false
-				};
-				if (finished === true) continue;
-				if (prev === CHAR_DOT && index === start + 1) {
-					start += 2;
-					continue;
-				}
-				lastIndex = index + 1;
-				continue;
-			}
-			if (opts.noext !== true) {
-				if ((code === CHAR_PLUS || code === CHAR_AT || code === CHAR_ASTERISK || code === CHAR_QUESTION_MARK || code === CHAR_EXCLAMATION_MARK) === true && peek() === CHAR_LEFT_PARENTHESES) {
-					isGlob = token.isGlob = true;
-					isExtglob = token.isExtglob = true;
-					finished = true;
-					if (code === CHAR_EXCLAMATION_MARK && index === start) negatedExtglob = true;
-					if (scanToEnd === true) {
-						while (eos() !== true && (code = advance())) {
-							if (code === CHAR_BACKWARD_SLASH) {
-								backslashes = token.backslashes = true;
-								code = advance();
-								continue;
-							}
-							if (code === CHAR_RIGHT_PARENTHESES) {
-								isGlob = token.isGlob = true;
-								finished = true;
-								break;
-							}
-						}
-						continue;
-					}
-					break;
-				}
-			}
-			if (code === CHAR_ASTERISK) {
-				if (prev === CHAR_ASTERISK) isGlobstar = token.isGlobstar = true;
-				isGlob = token.isGlob = true;
-				finished = true;
-				if (scanToEnd === true) continue;
-				break;
-			}
-			if (code === CHAR_QUESTION_MARK) {
-				isGlob = token.isGlob = true;
-				finished = true;
-				if (scanToEnd === true) continue;
-				break;
-			}
-			if (code === CHAR_LEFT_SQUARE_BRACKET) {
-				while (eos() !== true && (next = advance())) {
-					if (next === CHAR_BACKWARD_SLASH) {
-						backslashes = token.backslashes = true;
-						advance();
-						continue;
-					}
-					if (next === CHAR_RIGHT_SQUARE_BRACKET) {
-						isBracket = token.isBracket = true;
-						isGlob = token.isGlob = true;
-						finished = true;
-						break;
-					}
-				}
-				if (scanToEnd === true) continue;
-				break;
-			}
-			if (opts.nonegate !== true && code === CHAR_EXCLAMATION_MARK && index === start) {
-				negated = token.negated = true;
-				start++;
-				continue;
-			}
-			if (opts.noparen !== true && code === CHAR_LEFT_PARENTHESES) {
-				isGlob = token.isGlob = true;
-				if (scanToEnd === true) {
-					while (eos() !== true && (code = advance())) {
-						if (code === CHAR_LEFT_PARENTHESES) {
-							backslashes = token.backslashes = true;
-							code = advance();
-							continue;
-						}
-						if (code === CHAR_RIGHT_PARENTHESES) {
-							finished = true;
-							break;
-						}
-					}
-					continue;
-				}
-				break;
-			}
-			if (isGlob === true) {
-				finished = true;
-				if (scanToEnd === true) continue;
-				break;
-			}
-		}
-		if (opts.noext === true) {
-			isExtglob = false;
-			isGlob = false;
-		}
-		let base = str;
-		let prefix = "";
-		let glob = "";
-		if (start > 0) {
-			prefix = str.slice(0, start);
-			str = str.slice(start);
-			lastIndex -= start;
-		}
-		if (base && isGlob === true && lastIndex > 0) {
-			base = str.slice(0, lastIndex);
-			glob = str.slice(lastIndex);
-		} else if (isGlob === true) {
-			base = "";
-			glob = str;
-		} else base = str;
-		if (base && base !== "" && base !== "/" && base !== str) {
-			if (isPathSeparator(base.charCodeAt(base.length - 1))) base = base.slice(0, -1);
-		}
-		if (opts.unescape === true) {
-			if (glob) glob = utils.removeBackslashes(glob);
-			if (base && backslashes === true) base = utils.removeBackslashes(base);
-		}
-		const state = {
-			prefix,
-			input,
-			start,
-			base,
-			glob,
-			isBrace,
-			isBracket,
-			isGlob,
-			isExtglob,
-			isGlobstar,
-			negated,
-			negatedExtglob
-		};
-		if (opts.tokens === true) {
-			state.maxDepth = 0;
-			if (!isPathSeparator(code)) tokens.push(token);
-			state.tokens = tokens;
-		}
-		if (opts.parts === true || opts.tokens === true) {
-			let prevIndex;
-			for (let idx = 0; idx < slashes.length; idx++) {
-				const n = prevIndex ? prevIndex + 1 : start;
-				const i = slashes[idx];
-				const value = input.slice(n, i);
-				if (opts.tokens) {
-					if (idx === 0 && start !== 0) {
-						tokens[idx].isPrefix = true;
-						tokens[idx].value = prefix;
-					} else tokens[idx].value = value;
-					depth(tokens[idx]);
-					state.maxDepth += tokens[idx].depth;
-				}
-				if (idx !== 0 || value !== "") parts.push(value);
-				prevIndex = i;
-			}
-			if (prevIndex && prevIndex + 1 < input.length) {
-				const value = input.slice(prevIndex + 1);
-				parts.push(value);
-				if (opts.tokens) {
-					tokens[tokens.length - 1].value = value;
-					depth(tokens[tokens.length - 1]);
-					state.maxDepth += tokens[tokens.length - 1].depth;
-				}
-			}
-			state.slashes = slashes;
-			state.parts = parts;
-		}
-		return state;
-	};
-	module.exports = scan;
-}));
-
-//#endregion
-//#region node_modules/picomatch/lib/parse.js
-var require_parse = /* @__PURE__ */ __commonJSMin(((exports, module) => {
-	const constants = require_constants();
-	const utils = require_utils();
-	/**
-	* Constants
-	*/
-	const { MAX_LENGTH, POSIX_REGEX_SOURCE, REGEX_NON_SPECIAL_CHARS, REGEX_SPECIAL_CHARS_BACKREF, REPLACEMENTS } = constants;
-	/**
-	* Helpers
-	*/
-	const expandRange = (args, options) => {
-		if (typeof options.expandRange === "function") return options.expandRange(...args, options);
-		args.sort();
-		const value = `[${args.join("-")}]`;
-		try {
-			new RegExp(value);
-		} catch (ex) {
-			return args.map((v) => utils.escapeRegex(v)).join("..");
-		}
-		return value;
-	};
-	/**
-	* Create the message for a syntax error
-	*/
-	const syntaxError = (type, char) => {
-		return `Missing ${type}: "${char}" - use "\\\\${char}" to match literal characters`;
-	};
-	/**
-	* Parse the given input string.
-	* @param {String} input
-	* @param {Object} options
-	* @return {Object}
-	*/
-	const parse = (input, options) => {
-		if (typeof input !== "string") throw new TypeError("Expected a string");
-		input = REPLACEMENTS[input] || input;
-		const opts = { ...options };
-		const max = typeof opts.maxLength === "number" ? Math.min(MAX_LENGTH, opts.maxLength) : MAX_LENGTH;
-		let len = input.length;
-		if (len > max) throw new SyntaxError(`Input length: ${len}, exceeds maximum allowed length: ${max}`);
-		const bos = {
-			type: "bos",
-			value: "",
-			output: opts.prepend || ""
-		};
-		const tokens = [bos];
-		const capture = opts.capture ? "" : "?:";
-		const PLATFORM_CHARS = constants.globChars(opts.windows);
-		const EXTGLOB_CHARS = constants.extglobChars(PLATFORM_CHARS);
-		const { DOT_LITERAL, PLUS_LITERAL, SLASH_LITERAL, ONE_CHAR, DOTS_SLASH, NO_DOT, NO_DOT_SLASH, NO_DOTS_SLASH, QMARK, QMARK_NO_DOT, STAR, START_ANCHOR } = PLATFORM_CHARS;
-		const globstar = (opts) => {
-			return `(${capture}(?:(?!${START_ANCHOR}${opts.dot ? DOTS_SLASH : DOT_LITERAL}).)*?)`;
-		};
-		const nodot = opts.dot ? "" : NO_DOT;
-		const qmarkNoDot = opts.dot ? QMARK : QMARK_NO_DOT;
-		let star = opts.bash === true ? globstar(opts) : STAR;
-		if (opts.capture) star = `(${star})`;
-		if (typeof opts.noext === "boolean") opts.noextglob = opts.noext;
-		const state = {
-			input,
-			index: -1,
-			start: 0,
-			dot: opts.dot === true,
-			consumed: "",
-			output: "",
-			prefix: "",
-			backtrack: false,
-			negated: false,
-			brackets: 0,
-			braces: 0,
-			parens: 0,
-			quotes: 0,
-			globstar: false,
-			tokens
-		};
-		input = utils.removePrefix(input, state);
-		len = input.length;
-		const extglobs = [];
-		const braces = [];
-		const stack = [];
-		let prev = bos;
-		let value;
-		/**
-		* Tokenizing helpers
-		*/
-		const eos = () => state.index === len - 1;
-		const peek = state.peek = (n = 1) => input[state.index + n];
-		const advance = state.advance = () => input[++state.index] || "";
-		const remaining = () => input.slice(state.index + 1);
-		const consume = (value = "", num = 0) => {
-			state.consumed += value;
-			state.index += num;
-		};
-		const append = (token) => {
-			state.output += token.output != null ? token.output : token.value;
-			consume(token.value);
-		};
-		const negate = () => {
-			let count = 1;
-			while (peek() === "!" && (peek(2) !== "(" || peek(3) === "?")) {
-				advance();
-				state.start++;
-				count++;
-			}
-			if (count % 2 === 0) return false;
-			state.negated = true;
-			state.start++;
-			return true;
-		};
-		const increment = (type) => {
-			state[type]++;
-			stack.push(type);
-		};
-		const decrement = (type) => {
-			state[type]--;
-			stack.pop();
-		};
-		/**
-		* Push tokens onto the tokens array. This helper speeds up
-		* tokenizing by 1) helping us avoid backtracking as much as possible,
-		* and 2) helping us avoid creating extra tokens when consecutive
-		* characters are plain text. This improves performance and simplifies
-		* lookbehinds.
-		*/
-		const push = (tok) => {
-			if (prev.type === "globstar") {
-				const isBrace = state.braces > 0 && (tok.type === "comma" || tok.type === "brace");
-				const isExtglob = tok.extglob === true || extglobs.length && (tok.type === "pipe" || tok.type === "paren");
-				if (tok.type !== "slash" && tok.type !== "paren" && !isBrace && !isExtglob) {
-					state.output = state.output.slice(0, -prev.output.length);
-					prev.type = "star";
-					prev.value = "*";
-					prev.output = star;
-					state.output += prev.output;
-				}
-			}
-			if (extglobs.length && tok.type !== "paren") extglobs[extglobs.length - 1].inner += tok.value;
-			if (tok.value || tok.output) append(tok);
-			if (prev && prev.type === "text" && tok.type === "text") {
-				prev.output = (prev.output || prev.value) + tok.value;
-				prev.value += tok.value;
-				return;
-			}
-			tok.prev = prev;
-			tokens.push(tok);
-			prev = tok;
-		};
-		const extglobOpen = (type, value) => {
-			const token = {
-				...EXTGLOB_CHARS[value],
-				conditions: 1,
-				inner: ""
-			};
-			token.prev = prev;
-			token.parens = state.parens;
-			token.output = state.output;
-			const output = (opts.capture ? "(" : "") + token.open;
-			increment("parens");
-			push({
-				type,
-				value,
-				output: state.output ? "" : ONE_CHAR
-			});
-			push({
-				type: "paren",
-				extglob: true,
-				value: advance(),
-				output
-			});
-			extglobs.push(token);
-		};
-		const extglobClose = (token) => {
-			let output = token.close + (opts.capture ? ")" : "");
-			let rest;
-			if (token.type === "negate") {
-				let extglobStar = star;
-				if (token.inner && token.inner.length > 1 && token.inner.includes("/")) extglobStar = globstar(opts);
-				if (extglobStar !== star || eos() || /^\)+$/.test(remaining())) output = token.close = `)$))${extglobStar}`;
-				if (token.inner.includes("*") && (rest = remaining()) && /^\.[^\\/.]+$/.test(rest)) output = token.close = `)${parse(rest, {
-					...options,
-					fastpaths: false
-				}).output})${extglobStar})`;
-				if (token.prev.type === "bos") state.negatedExtglob = true;
-			}
-			push({
-				type: "paren",
-				extglob: true,
-				value,
-				output
-			});
-			decrement("parens");
-		};
-		/**
-		* Fast paths
-		*/
-		if (opts.fastpaths !== false && !/(^[*!]|[/()[\]{}"])/.test(input)) {
-			let backslashes = false;
-			let output = input.replace(REGEX_SPECIAL_CHARS_BACKREF, (m, esc, chars, first, rest, index) => {
-				if (first === "\\") {
-					backslashes = true;
-					return m;
-				}
-				if (first === "?") {
-					if (esc) return esc + first + (rest ? QMARK.repeat(rest.length) : "");
-					if (index === 0) return qmarkNoDot + (rest ? QMARK.repeat(rest.length) : "");
-					return QMARK.repeat(chars.length);
-				}
-				if (first === ".") return DOT_LITERAL.repeat(chars.length);
-				if (first === "*") {
-					if (esc) return esc + first + (rest ? star : "");
-					return star;
-				}
-				return esc ? m : `\\${m}`;
-			});
-			if (backslashes === true) if (opts.unescape === true) output = output.replace(/\\/g, "");
-			else output = output.replace(/\\+/g, (m) => {
-				return m.length % 2 === 0 ? "\\\\" : m ? "\\" : "";
-			});
-			if (output === input && opts.contains === true) {
-				state.output = input;
-				return state;
-			}
-			state.output = utils.wrapOutput(output, state, options);
-			return state;
-		}
-		/**
-		* Tokenize input until we reach end-of-string
-		*/
-		while (!eos()) {
-			value = advance();
-			if (value === "\0") continue;
-			/**
-			* Escaped characters
-			*/
-			if (value === "\\") {
-				const next = peek();
-				if (next === "/" && opts.bash !== true) continue;
-				if (next === "." || next === ";") continue;
-				if (!next) {
-					value += "\\";
-					push({
-						type: "text",
-						value
-					});
-					continue;
-				}
-				const match = /^\\+/.exec(remaining());
-				let slashes = 0;
-				if (match && match[0].length > 2) {
-					slashes = match[0].length;
-					state.index += slashes;
-					if (slashes % 2 !== 0) value += "\\";
-				}
-				if (opts.unescape === true) value = advance();
-				else value += advance();
-				if (state.brackets === 0) {
-					push({
-						type: "text",
-						value
-					});
-					continue;
-				}
-			}
-			/**
-			* If we're inside a regex character class, continue
-			* until we reach the closing bracket.
-			*/
-			if (state.brackets > 0 && (value !== "]" || prev.value === "[" || prev.value === "[^")) {
-				if (opts.posix !== false && value === ":") {
-					const inner = prev.value.slice(1);
-					if (inner.includes("[")) {
-						prev.posix = true;
-						if (inner.includes(":")) {
-							const idx = prev.value.lastIndexOf("[");
-							const pre = prev.value.slice(0, idx);
-							const posix = POSIX_REGEX_SOURCE[prev.value.slice(idx + 2)];
-							if (posix) {
-								prev.value = pre + posix;
-								state.backtrack = true;
-								advance();
-								if (!bos.output && tokens.indexOf(prev) === 1) bos.output = ONE_CHAR;
-								continue;
-							}
-						}
-					}
-				}
-				if (value === "[" && peek() !== ":" || value === "-" && peek() === "]") value = `\\${value}`;
-				if (value === "]" && (prev.value === "[" || prev.value === "[^")) value = `\\${value}`;
-				if (opts.posix === true && value === "!" && prev.value === "[") value = "^";
-				prev.value += value;
-				append({ value });
-				continue;
-			}
-			/**
-			* If we're inside a quoted string, continue
-			* until we reach the closing double quote.
-			*/
-			if (state.quotes === 1 && value !== "\"") {
-				value = utils.escapeRegex(value);
-				prev.value += value;
-				append({ value });
-				continue;
-			}
-			/**
-			* Double quotes
-			*/
-			if (value === "\"") {
-				state.quotes = state.quotes === 1 ? 0 : 1;
-				if (opts.keepQuotes === true) push({
-					type: "text",
-					value
-				});
-				continue;
-			}
-			/**
-			* Parentheses
-			*/
-			if (value === "(") {
-				increment("parens");
-				push({
-					type: "paren",
-					value
-				});
-				continue;
-			}
-			if (value === ")") {
-				if (state.parens === 0 && opts.strictBrackets === true) throw new SyntaxError(syntaxError("opening", "("));
-				const extglob = extglobs[extglobs.length - 1];
-				if (extglob && state.parens === extglob.parens + 1) {
-					extglobClose(extglobs.pop());
-					continue;
-				}
-				push({
-					type: "paren",
-					value,
-					output: state.parens ? ")" : "\\)"
-				});
-				decrement("parens");
-				continue;
-			}
-			/**
-			* Square brackets
-			*/
-			if (value === "[") {
-				if (opts.nobracket === true || !remaining().includes("]")) {
-					if (opts.nobracket !== true && opts.strictBrackets === true) throw new SyntaxError(syntaxError("closing", "]"));
-					value = `\\${value}`;
-				} else increment("brackets");
-				push({
-					type: "bracket",
-					value
-				});
-				continue;
-			}
-			if (value === "]") {
-				if (opts.nobracket === true || prev && prev.type === "bracket" && prev.value.length === 1) {
-					push({
-						type: "text",
-						value,
-						output: `\\${value}`
-					});
-					continue;
-				}
-				if (state.brackets === 0) {
-					if (opts.strictBrackets === true) throw new SyntaxError(syntaxError("opening", "["));
-					push({
-						type: "text",
-						value,
-						output: `\\${value}`
-					});
-					continue;
-				}
-				decrement("brackets");
-				const prevValue = prev.value.slice(1);
-				if (prev.posix !== true && prevValue[0] === "^" && !prevValue.includes("/")) value = `/${value}`;
-				prev.value += value;
-				append({ value });
-				if (opts.literalBrackets === false || utils.hasRegexChars(prevValue)) continue;
-				const escaped = utils.escapeRegex(prev.value);
-				state.output = state.output.slice(0, -prev.value.length);
-				if (opts.literalBrackets === true) {
-					state.output += escaped;
-					prev.value = escaped;
-					continue;
-				}
-				prev.value = `(${capture}${escaped}|${prev.value})`;
-				state.output += prev.value;
-				continue;
-			}
-			/**
-			* Braces
-			*/
-			if (value === "{" && opts.nobrace !== true) {
-				increment("braces");
-				const open = {
-					type: "brace",
-					value,
-					output: "(",
-					outputIndex: state.output.length,
-					tokensIndex: state.tokens.length
-				};
-				braces.push(open);
-				push(open);
-				continue;
-			}
-			if (value === "}") {
-				const brace = braces[braces.length - 1];
-				if (opts.nobrace === true || !brace) {
-					push({
-						type: "text",
-						value,
-						output: value
-					});
-					continue;
-				}
-				let output = ")";
-				if (brace.dots === true) {
-					const arr = tokens.slice();
-					const range = [];
-					for (let i = arr.length - 1; i >= 0; i--) {
-						tokens.pop();
-						if (arr[i].type === "brace") break;
-						if (arr[i].type !== "dots") range.unshift(arr[i].value);
-					}
-					output = expandRange(range, opts);
-					state.backtrack = true;
-				}
-				if (brace.comma !== true && brace.dots !== true) {
-					const out = state.output.slice(0, brace.outputIndex);
-					const toks = state.tokens.slice(brace.tokensIndex);
-					brace.value = brace.output = "\\{";
-					value = output = "\\}";
-					state.output = out;
-					for (const t of toks) state.output += t.output || t.value;
-				}
-				push({
-					type: "brace",
-					value,
-					output
-				});
-				decrement("braces");
-				braces.pop();
-				continue;
-			}
-			/**
-			* Pipes
-			*/
-			if (value === "|") {
-				if (extglobs.length > 0) extglobs[extglobs.length - 1].conditions++;
-				push({
-					type: "text",
-					value
-				});
-				continue;
-			}
-			/**
-			* Commas
-			*/
-			if (value === ",") {
-				let output = value;
-				const brace = braces[braces.length - 1];
-				if (brace && stack[stack.length - 1] === "braces") {
-					brace.comma = true;
-					output = "|";
-				}
-				push({
-					type: "comma",
-					value,
-					output
-				});
-				continue;
-			}
-			/**
-			* Slashes
-			*/
-			if (value === "/") {
-				if (prev.type === "dot" && state.index === state.start + 1) {
-					state.start = state.index + 1;
-					state.consumed = "";
-					state.output = "";
-					tokens.pop();
-					prev = bos;
-					continue;
-				}
-				push({
-					type: "slash",
-					value,
-					output: SLASH_LITERAL
-				});
-				continue;
-			}
-			/**
-			* Dots
-			*/
-			if (value === ".") {
-				if (state.braces > 0 && prev.type === "dot") {
-					if (prev.value === ".") prev.output = DOT_LITERAL;
-					const brace = braces[braces.length - 1];
-					prev.type = "dots";
-					prev.output += value;
-					prev.value += value;
-					brace.dots = true;
-					continue;
-				}
-				if (state.braces + state.parens === 0 && prev.type !== "bos" && prev.type !== "slash") {
-					push({
-						type: "text",
-						value,
-						output: DOT_LITERAL
-					});
-					continue;
-				}
-				push({
-					type: "dot",
-					value,
-					output: DOT_LITERAL
-				});
-				continue;
-			}
-			/**
-			* Question marks
-			*/
-			if (value === "?") {
-				if (!(prev && prev.value === "(") && opts.noextglob !== true && peek() === "(" && peek(2) !== "?") {
-					extglobOpen("qmark", value);
-					continue;
-				}
-				if (prev && prev.type === "paren") {
-					const next = peek();
-					let output = value;
-					if (prev.value === "(" && !/[!=<:]/.test(next) || next === "<" && !/<([!=]|\w+>)/.test(remaining())) output = `\\${value}`;
-					push({
-						type: "text",
-						value,
-						output
-					});
-					continue;
-				}
-				if (opts.dot !== true && (prev.type === "slash" || prev.type === "bos")) {
-					push({
-						type: "qmark",
-						value,
-						output: QMARK_NO_DOT
-					});
-					continue;
-				}
-				push({
-					type: "qmark",
-					value,
-					output: QMARK
-				});
-				continue;
-			}
-			/**
-			* Exclamation
-			*/
-			if (value === "!") {
-				if (opts.noextglob !== true && peek() === "(") {
-					if (peek(2) !== "?" || !/[!=<:]/.test(peek(3))) {
-						extglobOpen("negate", value);
-						continue;
-					}
-				}
-				if (opts.nonegate !== true && state.index === 0) {
-					negate();
-					continue;
-				}
-			}
-			/**
-			* Plus
-			*/
-			if (value === "+") {
-				if (opts.noextglob !== true && peek() === "(" && peek(2) !== "?") {
-					extglobOpen("plus", value);
-					continue;
-				}
-				if (prev && prev.value === "(" || opts.regex === false) {
-					push({
-						type: "plus",
-						value,
-						output: PLUS_LITERAL
-					});
-					continue;
-				}
-				if (prev && (prev.type === "bracket" || prev.type === "paren" || prev.type === "brace") || state.parens > 0) {
-					push({
-						type: "plus",
-						value
-					});
-					continue;
-				}
-				push({
-					type: "plus",
-					value: PLUS_LITERAL
-				});
-				continue;
-			}
-			/**
-			* Plain text
-			*/
-			if (value === "@") {
-				if (opts.noextglob !== true && peek() === "(" && peek(2) !== "?") {
-					push({
-						type: "at",
-						extglob: true,
-						value,
-						output: ""
-					});
-					continue;
-				}
-				push({
-					type: "text",
-					value
-				});
-				continue;
-			}
-			/**
-			* Plain text
-			*/
-			if (value !== "*") {
-				if (value === "$" || value === "^") value = `\\${value}`;
-				const match = REGEX_NON_SPECIAL_CHARS.exec(remaining());
-				if (match) {
-					value += match[0];
-					state.index += match[0].length;
-				}
-				push({
-					type: "text",
-					value
-				});
-				continue;
-			}
-			/**
-			* Stars
-			*/
-			if (prev && (prev.type === "globstar" || prev.star === true)) {
-				prev.type = "star";
-				prev.star = true;
-				prev.value += value;
-				prev.output = star;
-				state.backtrack = true;
-				state.globstar = true;
-				consume(value);
-				continue;
-			}
-			let rest = remaining();
-			if (opts.noextglob !== true && /^\([^?]/.test(rest)) {
-				extglobOpen("star", value);
-				continue;
-			}
-			if (prev.type === "star") {
-				if (opts.noglobstar === true) {
-					consume(value);
-					continue;
-				}
-				const prior = prev.prev;
-				const before = prior.prev;
-				const isStart = prior.type === "slash" || prior.type === "bos";
-				const afterStar = before && (before.type === "star" || before.type === "globstar");
-				if (opts.bash === true && (!isStart || rest[0] && rest[0] !== "/")) {
-					push({
-						type: "star",
-						value,
-						output: ""
-					});
-					continue;
-				}
-				const isBrace = state.braces > 0 && (prior.type === "comma" || prior.type === "brace");
-				const isExtglob = extglobs.length && (prior.type === "pipe" || prior.type === "paren");
-				if (!isStart && prior.type !== "paren" && !isBrace && !isExtglob) {
-					push({
-						type: "star",
-						value,
-						output: ""
-					});
-					continue;
-				}
-				while (rest.slice(0, 3) === "/**") {
-					const after = input[state.index + 4];
-					if (after && after !== "/") break;
-					rest = rest.slice(3);
-					consume("/**", 3);
-				}
-				if (prior.type === "bos" && eos()) {
-					prev.type = "globstar";
-					prev.value += value;
-					prev.output = globstar(opts);
-					state.output = prev.output;
-					state.globstar = true;
-					consume(value);
-					continue;
-				}
-				if (prior.type === "slash" && prior.prev.type !== "bos" && !afterStar && eos()) {
-					state.output = state.output.slice(0, -(prior.output + prev.output).length);
-					prior.output = `(?:${prior.output}`;
-					prev.type = "globstar";
-					prev.output = globstar(opts) + (opts.strictSlashes ? ")" : "|$)");
-					prev.value += value;
-					state.globstar = true;
-					state.output += prior.output + prev.output;
-					consume(value);
-					continue;
-				}
-				if (prior.type === "slash" && prior.prev.type !== "bos" && rest[0] === "/") {
-					const end = rest[1] !== void 0 ? "|$" : "";
-					state.output = state.output.slice(0, -(prior.output + prev.output).length);
-					prior.output = `(?:${prior.output}`;
-					prev.type = "globstar";
-					prev.output = `${globstar(opts)}${SLASH_LITERAL}|${SLASH_LITERAL}${end})`;
-					prev.value += value;
-					state.output += prior.output + prev.output;
-					state.globstar = true;
-					consume(value + advance());
-					push({
-						type: "slash",
-						value: "/",
-						output: ""
-					});
-					continue;
-				}
-				if (prior.type === "bos" && rest[0] === "/") {
-					prev.type = "globstar";
-					prev.value += value;
-					prev.output = `(?:^|${SLASH_LITERAL}|${globstar(opts)}${SLASH_LITERAL})`;
-					state.output = prev.output;
-					state.globstar = true;
-					consume(value + advance());
-					push({
-						type: "slash",
-						value: "/",
-						output: ""
-					});
-					continue;
-				}
-				state.output = state.output.slice(0, -prev.output.length);
-				prev.type = "globstar";
-				prev.output = globstar(opts);
-				prev.value += value;
-				state.output += prev.output;
-				state.globstar = true;
-				consume(value);
-				continue;
-			}
-			const token = {
-				type: "star",
-				value,
-				output: star
-			};
-			if (opts.bash === true) {
-				token.output = ".*?";
-				if (prev.type === "bos" || prev.type === "slash") token.output = nodot + token.output;
-				push(token);
-				continue;
-			}
-			if (prev && (prev.type === "bracket" || prev.type === "paren") && opts.regex === true) {
-				token.output = value;
-				push(token);
-				continue;
-			}
-			if (state.index === state.start || prev.type === "slash" || prev.type === "dot") {
-				if (prev.type === "dot") {
-					state.output += NO_DOT_SLASH;
-					prev.output += NO_DOT_SLASH;
-				} else if (opts.dot === true) {
-					state.output += NO_DOTS_SLASH;
-					prev.output += NO_DOTS_SLASH;
-				} else {
-					state.output += nodot;
-					prev.output += nodot;
-				}
-				if (peek() !== "*") {
-					state.output += ONE_CHAR;
-					prev.output += ONE_CHAR;
-				}
-			}
-			push(token);
-		}
-		while (state.brackets > 0) {
-			if (opts.strictBrackets === true) throw new SyntaxError(syntaxError("closing", "]"));
-			state.output = utils.escapeLast(state.output, "[");
-			decrement("brackets");
-		}
-		while (state.parens > 0) {
-			if (opts.strictBrackets === true) throw new SyntaxError(syntaxError("closing", ")"));
-			state.output = utils.escapeLast(state.output, "(");
-			decrement("parens");
-		}
-		while (state.braces > 0) {
-			if (opts.strictBrackets === true) throw new SyntaxError(syntaxError("closing", "}"));
-			state.output = utils.escapeLast(state.output, "{");
-			decrement("braces");
-		}
-		if (opts.strictSlashes !== true && (prev.type === "star" || prev.type === "bracket")) push({
-			type: "maybe_slash",
-			value: "",
-			output: `${SLASH_LITERAL}?`
-		});
-		if (state.backtrack === true) {
-			state.output = "";
-			for (const token of state.tokens) {
-				state.output += token.output != null ? token.output : token.value;
-				if (token.suffix) state.output += token.suffix;
-			}
-		}
-		return state;
-	};
-	/**
-	* Fast paths for creating regular expressions for common glob patterns.
-	* This can significantly speed up processing and has very little downside
-	* impact when none of the fast paths match.
-	*/
-	parse.fastpaths = (input, options) => {
-		const opts = { ...options };
-		const max = typeof opts.maxLength === "number" ? Math.min(MAX_LENGTH, opts.maxLength) : MAX_LENGTH;
-		const len = input.length;
-		if (len > max) throw new SyntaxError(`Input length: ${len}, exceeds maximum allowed length: ${max}`);
-		input = REPLACEMENTS[input] || input;
-		const { DOT_LITERAL, SLASH_LITERAL, ONE_CHAR, DOTS_SLASH, NO_DOT, NO_DOTS, NO_DOTS_SLASH, STAR, START_ANCHOR } = constants.globChars(opts.windows);
-		const nodot = opts.dot ? NO_DOTS : NO_DOT;
-		const slashDot = opts.dot ? NO_DOTS_SLASH : NO_DOT;
-		const capture = opts.capture ? "" : "?:";
-		const state = {
-			negated: false,
-			prefix: ""
-		};
-		let star = opts.bash === true ? ".*?" : STAR;
-		if (opts.capture) star = `(${star})`;
-		const globstar = (opts) => {
-			if (opts.noglobstar === true) return star;
-			return `(${capture}(?:(?!${START_ANCHOR}${opts.dot ? DOTS_SLASH : DOT_LITERAL}).)*?)`;
-		};
-		const create = (str) => {
-			switch (str) {
-				case "*": return `${nodot}${ONE_CHAR}${star}`;
-				case ".*": return `${DOT_LITERAL}${ONE_CHAR}${star}`;
-				case "*.*": return `${nodot}${star}${DOT_LITERAL}${ONE_CHAR}${star}`;
-				case "*/*": return `${nodot}${star}${SLASH_LITERAL}${ONE_CHAR}${slashDot}${star}`;
-				case "**": return nodot + globstar(opts);
-				case "**/*": return `(?:${nodot}${globstar(opts)}${SLASH_LITERAL})?${slashDot}${ONE_CHAR}${star}`;
-				case "**/*.*": return `(?:${nodot}${globstar(opts)}${SLASH_LITERAL})?${slashDot}${star}${DOT_LITERAL}${ONE_CHAR}${star}`;
-				case "**/.*": return `(?:${nodot}${globstar(opts)}${SLASH_LITERAL})?${DOT_LITERAL}${ONE_CHAR}${star}`;
-				default: {
-					const match = /^(.*?)\.(\w+)$/.exec(str);
-					if (!match) return;
-					const source = create(match[1]);
-					if (!source) return;
-					return source + DOT_LITERAL + match[2];
-				}
-			}
-		};
-		let source = create(utils.removePrefix(input, state));
-		if (source && opts.strictSlashes !== true) source += `${SLASH_LITERAL}?`;
-		return source;
-	};
-	module.exports = parse;
-}));
-
-//#endregion
-//#region node_modules/picomatch/lib/picomatch.js
-var require_picomatch$1 = /* @__PURE__ */ __commonJSMin(((exports, module) => {
-	const scan = require_scan();
-	const parse = require_parse();
-	const utils = require_utils();
-	const constants = require_constants();
-	const isObject = (val) => val && typeof val === "object" && !Array.isArray(val);
-	/**
-	* Creates a matcher function from one or more glob patterns. The
-	* returned function takes a string to match as its first argument,
-	* and returns true if the string is a match. The returned matcher
-	* function also takes a boolean as the second argument that, when true,
-	* returns an object with additional information.
-	*
-	* ```js
-	* const picomatch = require('picomatch');
-	* // picomatch(glob[, options]);
-	*
-	* const isMatch = picomatch('*.!(*a)');
-	* console.log(isMatch('a.a')); //=> false
-	* console.log(isMatch('a.b')); //=> true
-	* ```
-	* @name picomatch
-	* @param {String|Array} `globs` One or more glob patterns.
-	* @param {Object=} `options`
-	* @return {Function=} Returns a matcher function.
-	* @api public
-	*/
-	const picomatch = (glob, options, returnState = false) => {
-		if (Array.isArray(glob)) {
-			const fns = glob.map((input) => picomatch(input, options, returnState));
-			const arrayMatcher = (str) => {
-				for (const isMatch of fns) {
-					const state = isMatch(str);
-					if (state) return state;
-				}
-				return false;
-			};
-			return arrayMatcher;
-		}
-		const isState = isObject(glob) && glob.tokens && glob.input;
-		if (glob === "" || typeof glob !== "string" && !isState) throw new TypeError("Expected pattern to be a non-empty string");
-		const opts = options || {};
-		const posix = opts.windows;
-		const regex = isState ? picomatch.compileRe(glob, options) : picomatch.makeRe(glob, options, false, true);
-		const state = regex.state;
-		delete regex.state;
-		let isIgnored = () => false;
-		if (opts.ignore) {
-			const ignoreOpts = {
-				...options,
-				ignore: null,
-				onMatch: null,
-				onResult: null
-			};
-			isIgnored = picomatch(opts.ignore, ignoreOpts, returnState);
-		}
-		const matcher = (input, returnObject = false) => {
-			const { isMatch, match, output } = picomatch.test(input, regex, options, {
-				glob,
-				posix
-			});
-			const result = {
-				glob,
-				state,
-				regex,
-				posix,
-				input,
-				output,
-				match,
-				isMatch
-			};
-			if (typeof opts.onResult === "function") opts.onResult(result);
-			if (isMatch === false) {
-				result.isMatch = false;
-				return returnObject ? result : false;
-			}
-			if (isIgnored(input)) {
-				if (typeof opts.onIgnore === "function") opts.onIgnore(result);
-				result.isMatch = false;
-				return returnObject ? result : false;
-			}
-			if (typeof opts.onMatch === "function") opts.onMatch(result);
-			return returnObject ? result : true;
-		};
-		if (returnState) matcher.state = state;
-		return matcher;
-	};
-	/**
-	* Test `input` with the given `regex`. This is used by the main
-	* `picomatch()` function to test the input string.
-	*
-	* ```js
-	* const picomatch = require('picomatch');
-	* // picomatch.test(input, regex[, options]);
-	*
-	* console.log(picomatch.test('foo/bar', /^(?:([^/]*?)\/([^/]*?))$/));
-	* // { isMatch: true, match: [ 'foo/', 'foo', 'bar' ], output: 'foo/bar' }
-	* ```
-	* @param {String} `input` String to test.
-	* @param {RegExp} `regex`
-	* @return {Object} Returns an object with matching info.
-	* @api public
-	*/
-	picomatch.test = (input, regex, options, { glob, posix } = {}) => {
-		if (typeof input !== "string") throw new TypeError("Expected input to be a string");
-		if (input === "") return {
-			isMatch: false,
-			output: ""
-		};
-		const opts = options || {};
-		const format = opts.format || (posix ? utils.toPosixSlashes : null);
-		let match = input === glob;
-		let output = match && format ? format(input) : input;
-		if (match === false) {
-			output = format ? format(input) : input;
-			match = output === glob;
-		}
-		if (match === false || opts.capture === true) if (opts.matchBase === true || opts.basename === true) match = picomatch.matchBase(input, regex, options, posix);
-		else match = regex.exec(output);
-		return {
-			isMatch: Boolean(match),
-			match,
-			output
-		};
-	};
-	/**
-	* Match the basename of a filepath.
-	*
-	* ```js
-	* const picomatch = require('picomatch');
-	* // picomatch.matchBase(input, glob[, options]);
-	* console.log(picomatch.matchBase('foo/bar.js', '*.js'); // true
-	* ```
-	* @param {String} `input` String to test.
-	* @param {RegExp|String} `glob` Glob pattern or regex created by [.makeRe](#makeRe).
-	* @return {Boolean}
-	* @api public
-	*/
-	picomatch.matchBase = (input, glob, options) => {
-		return (glob instanceof RegExp ? glob : picomatch.makeRe(glob, options)).test(utils.basename(input));
-	};
-	/**
-	* Returns true if **any** of the given glob `patterns` match the specified `string`.
-	*
-	* ```js
-	* const picomatch = require('picomatch');
-	* // picomatch.isMatch(string, patterns[, options]);
-	*
-	* console.log(picomatch.isMatch('a.a', ['b.*', '*.a'])); //=> true
-	* console.log(picomatch.isMatch('a.a', 'b.*')); //=> false
-	* ```
-	* @param {String|Array} str The string to test.
-	* @param {String|Array} patterns One or more glob patterns to use for matching.
-	* @param {Object} [options] See available [options](#options).
-	* @return {Boolean} Returns true if any patterns match `str`
-	* @api public
-	*/
-	picomatch.isMatch = (str, patterns, options) => picomatch(patterns, options)(str);
-	/**
-	* Parse a glob pattern to create the source string for a regular
-	* expression.
-	*
-	* ```js
-	* const picomatch = require('picomatch');
-	* const result = picomatch.parse(pattern[, options]);
-	* ```
-	* @param {String} `pattern`
-	* @param {Object} `options`
-	* @return {Object} Returns an object with useful properties and output to be used as a regex source string.
-	* @api public
-	*/
-	picomatch.parse = (pattern, options) => {
-		if (Array.isArray(pattern)) return pattern.map((p) => picomatch.parse(p, options));
-		return parse(pattern, {
-			...options,
-			fastpaths: false
-		});
-	};
-	/**
-	* Scan a glob pattern to separate the pattern into segments.
-	*
-	* ```js
-	* const picomatch = require('picomatch');
-	* // picomatch.scan(input[, options]);
-	*
-	* const result = picomatch.scan('!./foo/*.js');
-	* console.log(result);
-	* { prefix: '!./',
-	*   input: '!./foo/*.js',
-	*   start: 3,
-	*   base: 'foo',
-	*   glob: '*.js',
-	*   isBrace: false,
-	*   isBracket: false,
-	*   isGlob: true,
-	*   isExtglob: false,
-	*   isGlobstar: false,
-	*   negated: true }
-	* ```
-	* @param {String} `input` Glob pattern to scan.
-	* @param {Object} `options`
-	* @return {Object} Returns an object with
-	* @api public
-	*/
-	picomatch.scan = (input, options) => scan(input, options);
-	/**
-	* Compile a regular expression from the `state` object returned by the
-	* [parse()](#parse) method.
-	*
-	* @param {Object} `state`
-	* @param {Object} `options`
-	* @param {Boolean} `returnOutput` Intended for implementors, this argument allows you to return the raw output from the parser.
-	* @param {Boolean} `returnState` Adds the state to a `state` property on the returned regex. Useful for implementors and debugging.
-	* @return {RegExp}
-	* @api public
-	*/
-	picomatch.compileRe = (state, options, returnOutput = false, returnState = false) => {
-		if (returnOutput === true) return state.output;
-		const opts = options || {};
-		const prepend = opts.contains ? "" : "^";
-		const append = opts.contains ? "" : "$";
-		let source = `${prepend}(?:${state.output})${append}`;
-		if (state && state.negated === true) source = `^(?!${source}).*$`;
-		const regex = picomatch.toRegex(source, options);
-		if (returnState === true) regex.state = state;
-		return regex;
-	};
-	/**
-	* Create a regular expression from a parsed glob pattern.
-	*
-	* ```js
-	* const picomatch = require('picomatch');
-	* const state = picomatch.parse('*.js');
-	* // picomatch.compileRe(state[, options]);
-	*
-	* console.log(picomatch.compileRe(state));
-	* //=> /^(?:(?!\.)(?=.)[^/]*?\.js)$/
-	* ```
-	* @param {String} `state` The object returned from the `.parse` method.
-	* @param {Object} `options`
-	* @param {Boolean} `returnOutput` Implementors may use this argument to return the compiled output, instead of a regular expression. This is not exposed on the options to prevent end-users from mutating the result.
-	* @param {Boolean} `returnState` Implementors may use this argument to return the state from the parsed glob with the returned regular expression.
-	* @return {RegExp} Returns a regex created from the given pattern.
-	* @api public
-	*/
-	picomatch.makeRe = (input, options = {}, returnOutput = false, returnState = false) => {
-		if (!input || typeof input !== "string") throw new TypeError("Expected a non-empty string");
-		let parsed = {
-			negated: false,
-			fastpaths: true
-		};
-		if (options.fastpaths !== false && (input[0] === "." || input[0] === "*")) parsed.output = parse.fastpaths(input, options);
-		if (!parsed.output) parsed = parse(input, options);
-		return picomatch.compileRe(parsed, options, returnOutput, returnState);
-	};
-	/**
-	* Create a regular expression from the given regex source string.
-	*
-	* ```js
-	* const picomatch = require('picomatch');
-	* // picomatch.toRegex(source[, options]);
-	*
-	* const { output } = picomatch.parse('*.js');
-	* console.log(picomatch.toRegex(output));
-	* //=> /^(?:(?!\.)(?=.)[^/]*?\.js)$/
-	* ```
-	* @param {String} `source` Regular expression source string.
-	* @param {Object} `options`
-	* @return {RegExp}
-	* @api public
-	*/
-	picomatch.toRegex = (source, options) => {
-		try {
-			const opts = options || {};
-			return new RegExp(source, opts.flags || (opts.nocase ? "i" : ""));
-		} catch (err) {
-			if (options && options.debug === true) throw err;
-			return /$^/;
-		}
-	};
-	/**
-	* Picomatch constants.
-	* @return {Object}
-	*/
-	picomatch.constants = constants;
-	/**
-	* Expose "picomatch"
-	*/
-	module.exports = picomatch;
-}));
-
-//#endregion
-//#region node_modules/picomatch/index.js
-var require_picomatch = /* @__PURE__ */ __commonJSMin(((exports, module) => {
-	const pico = require_picomatch$1();
-	const utils = require_utils();
-	function picomatch(glob, options, returnState = false) {
-		if (options && (options.windows === null || options.windows === void 0)) options = {
-			...options,
-			windows: utils.isWindows()
-		};
-		return pico(glob, options, returnState);
-	}
-	Object.assign(picomatch, pico);
-	module.exports = picomatch;
-}));
-
-//#endregion
-//#region src/utils/paths.ts
-var import_picomatch = /* @__PURE__ */ __toESM(require_picomatch(), 1);
-function toPosixPath(value) {
-	return value.replace(/\\/g, "/");
-}
-const globMatcherCache = /* @__PURE__ */ new Map();
-function normalizeGlob(glob) {
-	const normalized = toPosixPath(glob.trim());
-	if (!normalized) throw new Error("Glob cannot be empty");
-	return normalized;
-}
-function createGlobMatcher(glob) {
-	const normalized = normalizeGlob(glob);
+//#region src/action/target/manifests/handlers/package-json.ts
+function parsePackageJson(text) {
+	let parsed;
 	try {
-		return (0, import_picomatch.default)(normalized, {
-			dot: true,
-			posixSlashes: true,
-			strictBrackets: true
-		});
+		parsed = JSON.parse(text);
 	} catch (error) {
-		throw new Error(`Invalid glob syntax "${normalized}": ${error instanceof Error ? error.message : String(error)}`);
+		throw new Error(`Invalid JSON pakage.json: ${String(error)}`);
 	}
+	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error(`Expected JSON object in package.json`);
+	return parsed;
 }
-function getGlobMatcher(glob) {
-	const normalized = normalizeGlob(glob);
-	const cached = globMatcherCache.get(normalized);
-	if (cached) return cached;
-	const matcher = createGlobMatcher(normalized);
-	globMatcherCache.set(normalized, matcher);
-	return matcher;
-}
-function validateGlobPattern(glob) {
-	createGlobMatcher(glob);
-}
-function isGlobMatch(filePath, glob) {
-	return getGlobMatcher(glob)(toPosixPath(filePath));
-}
-function uniqueSortedPosix(files) {
-	return [...new Set(files.map(toPosixPath))].sort();
-}
+const read$1 = async (text) => {
+	const parsed = parsePackageJson(text);
+	const version = String(parsed.version ?? "").trim();
+	if (!version) throw new Error(`Target manifest "${text}" missing package.json version field`);
+	return version;
+};
+const update = async (text, nextVersion) => {
+	const versionPattern = /^(\s*"version"\s*:\s*")([^"]+)(")/m;
+	if (!versionPattern.test(text)) throw new Error(`Target manifest missing package.json version field`);
+	return text.replace(versionPattern, `$1${nextVersion}$3`);
+};
+const packageJsonHandler = {
+	read: read$1,
+	update
+};
 
 //#endregion
-//#region src/git.ts
-function trimTrailingNewline(value) {
-	return value.replace(/\r?\n$/u, "");
+//#region src/action/target/manifests/handlers/toml.ts
+function updateTomlSectionVersion(text, section, nextVersion) {
+	const escapedSection = section.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	const sectionPattern = new RegExp(`(\\[${escapedSection}\\][\\s\\S]*?^\\s*version\\s*=\\s*")([^"]+)(")`, "m");
+	if (!sectionPattern.test(text)) return text;
+	return text.replace(sectionPattern, `$1${nextVersion}$3`);
 }
-function authorDisplay(authorName, githubUsername) {
-	if (githubUsername) return `@${githubUsername}`;
-	return authorName || "unknown";
+function extractTomlSection(text, section) {
+	const escapedSection = section.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	const sectionRegex = new RegExp(`\\[${escapedSection}\\]([\\s\\S]*?)(?=\\n\\[[^\\]]+\\]|$)`);
+	return text.match(sectionRegex)?.[1] ?? "";
 }
-async function resolveRef(ref) {
-	const { stdout } = await runCommand("git", [
-		"rev-parse",
-		"--verify",
-		ref
-	]);
-	return trimTrailingNewline(stdout).trim();
-}
-async function resolveFirstCommit(toRefSha) {
-	return trimTrailingNewline((await runCommand("git", [
-		"rev-list",
-		"--max-parents=0",
-		toRefSha
-	])).stdout).split(/\r?\n/u).map((line) => line.trim()).filter(Boolean)[0] ?? "";
-}
-async function listMergedTags(toRefSha) {
-	const { stdout } = await runCommand("git", [
-		"tag",
-		"--merged",
-		toRefSha,
-		"--sort=-creatordate"
-	]);
-	return stdout.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean);
-}
-async function resolveTagCommit(tagName) {
-	const { stdout } = await runCommand("git", [
-		"rev-list",
-		"-n",
-		"1",
-		tagName
-	]);
-	return trimTrailingNewline(stdout).trim();
-}
-async function resolveGitRange(fromRef, toRef, logger) {
-	const to = await resolveRef(toRef || "HEAD");
-	let from = fromRef;
-	if (!from) from = await resolveFirstCommit(to);
-	if (!from) throw new Error("Unable to resolve from-ref. Set input 'from-ref' explicitly.");
-	try {
-		from = await resolveRef(from);
-	} catch (error) {
-		if (fs.existsSync(".git/shallow")) throw new Error(`Failed to resolve from-ref "${fromRef}". Repository appears shallow. Use actions/checkout with fetch-depth: 0.`);
-		throw error;
-	}
-	logger.info(`Resolved git range: ${from}..${to}`);
-	return {
-		from,
-		to,
-		expression: `${from}..${to}`
+const makeReader = (section) => {
+	return async (text) => {
+		const match = extractTomlSection(text, section).match(/^\s*version\s*=\s*"([^"]+)"\s*$/mu);
+		if (!match) throw new Error("Cargo.toml missing [package] version = \"x.y.z\"");
+		const version = match[1];
+		if (!version) throw new Error("Cargo.toml missing [package] version = \"x.y.z\"");
+		return version;
 	};
-}
-async function resolveLatestTagStart(toRefSha, logger, options) {
-	const allTags = await listMergedTags(toRefSha);
-	const latestTag = (options.tagPrefix ? allTags.filter((tagName) => tagName.startsWith(options.tagPrefix ?? "")) : allTags)[0] ?? "";
-	if (latestTag) {
-		const tagCommit = await resolveTagCommit(latestTag);
-		logger.info(options.tagPrefix ? `Resolved range start for target "${options.targetLabel}" from latest tag "${latestTag}" (prefix "${options.tagPrefix}").` : `Resolved range start from latest reachable tag "${latestTag}".`);
-		return tagCommit;
+};
+const makeUpdater = (section) => {
+	return async (text, nextVersion) => {
+		const updated = updateTomlSectionVersion(text, section, nextVersion);
+		if (updated === text) throw new Error(`Target manifest missing [${section}] version = "x.y.z" field`);
+		return updated;
+	};
+};
+const getTomlHandler = (section) => {
+	return {
+		read: makeReader(section),
+		update: makeUpdater(section)
+	};
+};
+const cargoToml = getTomlHandler("package");
+const pyprojectToml = getTomlHandler("project");
+
+//#endregion
+//#region src/action/target/manifests/index.ts
+const manifestTargetSuffix = (targetLabel) => {
+	return targetLabel ? ` for target "${targetLabel}"` : "";
+};
+const readText = async (filePath, context = {}) => {
+	const absolute = pathUtils.manifests.resolveInWorkspace(filePath, context);
+	try {
+		return await fs$1.readFile(absolute, "utf8");
+	} catch (error) {
+		throw new Error(`Failed reading manifest "${filePath}"${manifestTargetSuffix(context.targetLabel)}: ${String(error)}`);
 	}
-	const firstCommit = await resolveFirstCommit(toRefSha);
-	if (!firstCommit) throw new Error(`Unable to resolve first commit for ${toRefSha}.`);
-	logger.info(options.tagPrefix ? `No matching tag found for target "${options.targetLabel}" with prefix "${options.tagPrefix}". Falling back to first commit ${firstCommit}.` : `No reachable tags found for ${toRefSha}. Falling back to first commit ${firstCommit}.`);
-	return firstCommit;
-}
-async function resolveGitRangeWithStrategy(options, logger) {
-	const to = await resolveRef(options.toRef || "HEAD");
-	if (options.strategy === "explicit") return resolveGitRange(options.fromRef, options.toRef, logger);
-	if (options.strategy === "latest-tag") {
-		const from = await resolveLatestTagStart(to, logger, { targetLabel: options.targetLabel });
-		logger.info(`Resolved git range for target "${options.targetLabel}" via latest-tag: ${from}..${to}`);
+};
+const writeText = async (filePath, content, context = {}) => {
+	const absolute = pathUtils.manifests.resolveInWorkspace(filePath, context);
+	try {
+		await io.ensureParentDir(absolute);
+		await fs$1.writeFile(absolute, content, "utf8");
+	} catch (error) {
+		throw new Error(`Failed writing manifest "${filePath}"${manifestTargetSuffix(context.targetLabel)}: ${String(error)}`);
+	}
+};
+const getHandler = (type) => {
+	switch (type) {
+		case "node-package-json": return packageJsonHandler;
+		case "rust-cargo-toml": return cargoToml;
+		case "python-pyproject-toml": return pyprojectToml;
+		default: throw new Error(`Unsupported manifest type "${type}"`);
+	}
+};
+const read = async (filePath, type, context = {}) => {
+	const text = await readText(filePath, context);
+	return getHandler(type).read(text);
+};
+const write = async (filePath, type, nextVersion, context = {}) => {
+	const text = await readText(filePath, context);
+	await writeText(filePath, await getHandler(type).update(text, nextVersion), context);
+};
+const manifests = {
+	read,
+	write
+};
+
+//#endregion
+//#region src/action/release/safety.ts
+const RESERVED_BRANCH_NAMES = new Set([
+	"main",
+	"master",
+	"develop",
+	"development",
+	"dev",
+	"trunk",
+	"production",
+	"prod",
+	"staging",
+	"stage"
+]);
+const INVALID_REF_PATTERN = /[\s~^:?*[\\]/u;
+const SAFE_SEGMENT_PATTERN = /^[A-Za-z0-9._-]+$/u;
+const throwErr = (branch, targetLabel, reason) => {
+	throw new Error(`Security validation failed for release branch "${branch}" (target "${targetLabel}"): ${reason}. Use an automation-owned release namespace prefix such as "rellu/release".`);
+};
+const normalizePrefix = (prefix) => {
+	return prefix.trim().replace(/\/+$/u, "");
+};
+const hasReleaseNamespace = (prefix) => {
+	return prefix.split("/").map((segment) => segment.toLowerCase()).some((segment) => segment.startsWith("release"));
+};
+const check = (options) => {
+	const { branch, branchPrefix, targetLabel } = options;
+	const normalizedPrefix = normalizePrefix(branchPrefix);
+	if (!branch.trim()) throwErr(branch, targetLabel, "resolved branch is empty");
+	if (!targetLabel.trim()) throwErr(branch, targetLabel, "target label is empty");
+	if (!normalizedPrefix) throwErr(branch, targetLabel, "release branch prefix is empty");
+	const expectedBranch = `${normalizedPrefix}/${targetLabel}`;
+	if (branch !== expectedBranch) throwErr(branch, targetLabel, `resolved branch does not match expected "${expectedBranch}" from configured prefix and target label`);
+	if (!normalizedPrefix.includes("/")) throwErr(branch, targetLabel, "prefix must include a namespace segment (for example \"rellu/release\")");
+	if (!hasReleaseNamespace(normalizedPrefix)) throwErr(branch, targetLabel, "prefix must include a release namespace segment");
+	if (branch.startsWith("refs/")) throwErr(branch, targetLabel, "branch must not include refs/* prefixes");
+	if (branch.includes("//")) throwErr(branch, targetLabel, "branch must not contain empty path segments");
+	if (branch.includes("..") || branch.includes("@{")) throwErr(branch, targetLabel, "branch contains prohibited git ref sequences");
+	if (INVALID_REF_PATTERN.test(branch)) throwErr(branch, targetLabel, "branch contains invalid git ref characters");
+	const segments = branch.split("/");
+	for (const segment of segments) {
+		if (!segment || segment === "." || segment === "..") throwErr(branch, targetLabel, "branch contains invalid path segments");
+		if (segment.endsWith(".lock")) throwErr(branch, targetLabel, "branch segments cannot end with .lock");
+		if (!SAFE_SEGMENT_PATTERN.test(segment)) throwErr(branch, targetLabel, "branch contains unsupported characters");
+	}
+	if (targetLabel.includes("/")) throwErr(branch, targetLabel, "target label must map to a single branch segment (no slashes)");
+	if (RESERVED_BRANCH_NAMES.has(branch.toLowerCase())) throwErr(branch, targetLabel, "branch resolves to a protected or default branch name");
+};
+const safety = { check };
+
+//#endregion
+//#region src/action/release/index.ts
+const getReleaseBranchName = (prefix, label) => {
+	return `${prefix.replace(/\/+$/u, "")}/${label}`;
+};
+const findOpenReleasePr = async (repo, branch, base, title, gh) => {
+	const byBranch = await gh.pr.list(repo, {
+		state: "open",
+		head: `${repo.owner}:${branch}`,
+		base,
+		perPage: 100
+	});
+	if (Array.isArray(byBranch) && byBranch.length > 0) return byBranch[0] ?? null;
+	return (await gh.pr.list(repo, {
+		state: "open",
+		base,
+		perPage: 100
+	})).find((pull) => String(pull.headRef ?? "") === branch || String(pull.title ?? "").startsWith(title)) ?? null;
+};
+const makeCommitMessage = (pattern, targetLabel, version) => {
+	return pattern.replace(/\{target\}/gu, targetLabel).replace(/\{version\}/gu, version);
+};
+const regenerateReleaseBranch = async (relluConfig, baseBranch, branch, releaseBranchPrefix, target) => {
+	const { inputs } = relluConfig;
+	safety.check({
+		branch,
+		branchPrefix: releaseBranchPrefix,
+		targetLabel: target.label
+	});
+	await git.branch.prepare(baseBranch, branch, { shouldSetUser: true });
+	await manifests.write(target.versionSource.file, target.versionSource.type, target.nextVersion, { targetLabel: target.label });
+	await git.add(target.versionSource.file);
+	if (!await git.isFileModified(target.versionSource.file)) {
+		log.info(`No version file changes for ${target.label}; branch regeneration skipped commit.`);
+		return;
+	}
+	const commitMessage = makeCommitMessage(inputs.releaseCommitMessagePattern, target.label, target.nextVersion);
+	await git.commit(commitMessage, { verify: false });
+	await git.push("origin", branch, { force: true });
+	log.info(`Regenerated release branch ${branch} with version update commit and pushed to origin.`);
+};
+const createOrUpdateReleasePr = async (target, settings, relluConfig) => {
+	const { inputs } = relluConfig;
+	const gh = getGh(inputs);
+	const repo = gh.repo.parseIdentifier(inputs.repo);
+	if (!repo) throw new Error(`Invalid repository slug "${inputs.repo}". Expected format "owner/name" with exactly two non-empty segments.`);
+	const branch = getReleaseBranchName(settings.releaseBranchPrefix, target.label);
+	const body = target.changelog.markdown || "_No changelog entries._";
+	const title = makeCommitMessage(inputs.releaseCommitMessagePattern, target.label, target.nextVersion);
+	await regenerateReleaseBranch(relluConfig, settings.baseBranch, branch, settings.releaseBranchPrefix, target);
+	const existing = await findOpenReleasePr(repo, branch, settings.baseBranch, makeCommitMessage(inputs.releaseCommitMessagePattern, target.label, target.currentVersion), gh);
+	if (existing) {
+		const updated = await gh.pr.update(repo, existing.number, {
+			title,
+			body
+		});
+		log.info(`Updated existing release PR #${existing.number} for target ${target.label}.`);
 		return {
-			from,
-			to,
-			expression: `${from}..${to}`
+			enabled: true,
+			action: "updated",
+			branch,
+			title,
+			number: updated.number,
+			url: updated.htmlUrl
 		};
 	}
-	if (!options.tagPrefix) throw new Error(`Target "${options.targetLabel}" is missing tagPrefix for range-strategy latest-tag-with-prefix.`);
-	const from = await resolveLatestTagStart(to, logger, {
-		targetLabel: options.targetLabel,
-		tagPrefix: options.tagPrefix
+	const created = await gh.pr.create(repo, {
+		title,
+		head: branch,
+		base: settings.baseBranch,
+		body
 	});
-	logger.info(`Resolved git range for target "${options.targetLabel}" via latest-tag-with-prefix "${options.tagPrefix}": ${from}..${to}`);
+	log.info(`Created new release PR #${created.number} for target ${target.label}.`);
 	return {
-		from,
-		to,
-		expression: `${from}..${to}`
+		enabled: true,
+		action: "created",
+		branch,
+		title,
+		number: created.number,
+		url: created.htmlUrl
 	};
-}
-async function listCommitFiles(sha) {
-	const { stdout } = await runCommand("git", [
-		"diff-tree",
-		"--no-commit-id",
-		"--name-only",
-		"-r",
-		"--first-parent",
-		"-m",
-		sha
-	]);
-	return uniqueSortedPosix(stdout.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean).map(toPosixPath));
-}
-async function readCommitMetadata(sha) {
-	const { stdout } = await runCommand("git", [
-		"show",
-		"-s",
-		`--format=${[
-			"%H",
-			"%P",
-			"%s",
-			"%b",
-			"--RELLU--",
-			"%an",
-			"%ae"
-		].join("%n")}`,
-		sha
-	]);
-	const [meta = "", authorName = "", authorEmail = ""] = stdout.split("--RELLU--");
-	const lines = meta.replace(/\r/g, "").split("\n");
-	const parsedSha = (lines.shift() ?? "").trim();
-	const parents = (lines.shift() ?? "").trim().split(" ").filter(Boolean);
-	const subject = lines.shift() ?? "";
-	const body = lines.join("\n").trim();
+};
+const getTargetReleaseSettings = (relluConfig, targetLabel) => {
+	const { config, inputs } = relluConfig;
+	const targetSettings = config.targets?.find((target) => target.label === targetLabel)?.releasePr;
 	return {
-		sha: parsedSha || sha,
-		parents,
-		subject,
-		body,
-		authorName: authorName.trim(),
-		authorEmail: authorEmail.trim(),
-		isMerge: parents.length > 1
+		enabled: targetSettings?.enabled ?? true,
+		releaseBranchPrefix: targetSettings?.branchPrefix ?? inputs.releaseBranchPrefix,
+		baseBranch: targetSettings?.baseBranch ?? inputs.baseBranch
 	};
-}
-async function collectCommitsInRange(range, logger) {
-	const { stdout } = await runCommand("git", [
-		"rev-list",
-		"--reverse",
-		"--first-parent",
-		range
-	]);
-	const shas = stdout.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean);
-	const commits = [];
-	for (const sha of shas) {
-		const metadata = await readCommitMetadata(sha);
-		const files = await listCommitFiles(sha);
-		commits.push({
-			...metadata,
-			files,
-			githubUsername: "",
-			authorDisplay: authorDisplay(metadata.authorName, "")
-		});
+};
+const maybeManageReleasePr = async (relluConfig, target) => {
+	const settings = getTargetReleaseSettings(relluConfig, target.label);
+	if (!settings.enabled) {
+		log.info(`Skipping release PR for ${target.label}: target releasePr.enabled=false.`);
+		return {
+			...target,
+			releasePr: {
+				enabled: false,
+				action: "none"
+			}
+		};
 	}
-	logger.info(`Collected ${commits.length} commits from ${range}`);
-	return commits;
-}
-async function enrichCommitsWithGitHubUsernames(commits, repo, apiBase, token, logger) {
-	if (!token) return commits;
-	const parsed = parseRepoRef(repo);
-	if (!parsed) return commits;
-	const githubClient = createGitHubClient(token, apiBase);
-	const updated = [];
-	for (const commit of commits) {
-		let resolvedUsername = "";
-		try {
-			resolvedUsername = (await githubClient.getCommitAuthorLogin(parsed, commit.sha)).trim();
-		} catch (error) {
-			logger.warn(`Could not resolve associated GitHub username for commit ${commit.sha}: ${String(error)}`);
-		}
-		if (!resolvedUsername && commit.authorEmail) try {
-			resolvedUsername = (await githubClient.getUserLoginByEmail(commit.authorEmail)).trim();
-		} catch (error) {
-			logger.warn(`Could not resolve GitHub username by email for commit ${commit.sha} (${commit.authorEmail}): ${String(error)}`);
-		}
-		updated.push({
-			...commit,
-			githubUsername: resolvedUsername,
-			authorDisplay: authorDisplay(commit.authorName, resolvedUsername)
-		});
+	if (!(target.changed && target.nextVersion !== target.currentVersion) || target.skipRelease) {
+		if (target.changed) log.warn(`Skipping release PR for ${target.label}: non-releasable target under current policy.`);
+		return {
+			...target,
+			releasePr: {
+				enabled: !target.skipRelease,
+				action: "none"
+			}
+		};
 	}
-	return updated;
-}
+	log.info(`Managing release PR for ${target.label} on branch ${getReleaseBranchName(settings.releaseBranchPrefix, target.label)}`);
+	try {
+		const releasePr = await createOrUpdateReleasePr(target, settings, relluConfig);
+		return {
+			...target,
+			releasePr
+		};
+	} catch (error) {
+		throw new Error(`Failed managing release PR for target "${target.label}": ${String(error)}`);
+	}
+};
 
 //#endregion
-//#region src/semver.ts
-function parseSemver(version) {
-	const match = version.trim().match(/^(\d+)\.(\d+)\.(\d+)$/u);
-	if (!match) throw new Error(`Invalid semantic version "${version}"`);
-	return {
-		major: Number(match[1]),
-		minor: Number(match[2]),
-		patch: Number(match[3])
-	};
-}
-function calculateNextVersion(currentVersion, bump) {
-	const parsed = parseSemver(currentVersion);
-	switch (bump) {
-		case "major": return `${parsed.major + 1}.0.0`;
-		case "minor": return `${parsed.major}.${parsed.minor + 1}.0`;
-		case "patch": return `${parsed.major}.${parsed.minor}.${parsed.patch + 1}`;
-		case "none": return `${parsed.major}.${parsed.minor}.${parsed.patch}`;
-		default: {
-			const exhaustiveCheck = bump;
-			throw new Error(`Unsupported bump level "${String(exhaustiveCheck)}"`);
-		}
-	}
-}
-
-//#endregion
-//#region src/targets.ts
+//#region src/action/target/impacts.ts
 function matchFilesForTarget(target, files) {
-	return files.filter((file) => target.paths.some((glob) => isGlobMatch(file, glob)));
+	return files.filter((file) => target.paths.some((glob) => pathUtils.glob.match(file, glob)));
 }
-function analyzeTargetImpacts(targets, commits) {
+/** analyzes the impacts of the given commits on the specified targets based on their paths */
+const analyzeTargetImpacts = (targets, commits) => {
 	return targets.map((target) => {
 		const matchedFiles = /* @__PURE__ */ new Set();
 		const relevantCommits = [];
 		for (const commit of commits) {
-			const matches = matchFilesForTarget(target, commit.files.map(toPosixPath));
+			const matches = matchFilesForTarget(target, commit.files.map(pathUtils.asPosix));
 			if (matches.length > 0) {
 				relevantCommits.push(commit);
 				for (const file of matches) matchedFiles.add(file);
 			}
 		}
-		const matchedFilesList = uniqueSortedPosix([...matchedFiles]);
+		const matchedFilesList = pathUtils.dedupAndSort([...matchedFiles]);
 		return {
 			label: target.label,
 			changed: matchedFilesList.length > 0,
@@ -21618,174 +27469,236 @@ function analyzeTargetImpacts(targets, commits) {
 			relevantCommits
 		};
 	});
-}
+};
 
 //#endregion
-//#region src/toolkit/io-client.ts
-async function ensureParentDirectory(filePath) {
-	const directory = path.dirname(path.resolve(filePath));
-	await mkdirP(directory);
-}
-
-//#endregion
-//#region src/utils/workspace-path.ts
-function resolveWorkspaceRoot(workspaceRoot) {
-	const rawRoot = workspaceRoot?.trim() || process.env.GITHUB_WORKSPACE?.trim() || process.cwd();
-	return path.resolve(rawRoot);
-}
-function manifestPathValidationError(configuredPath, targetLabel, reason) {
-	const targetPrefix = targetLabel ? ` for target "${targetLabel}"` : "";
-	return /* @__PURE__ */ new Error(`Manifest path validation failed${targetPrefix} for configured path "${configuredPath}": ${reason}`);
-}
-function resolveManifestPathInWorkspace(filePath, options = {}) {
-	const configuredPath = String(filePath ?? "");
-	if (!configuredPath.trim()) throw manifestPathValidationError(configuredPath, options.targetLabel, "path is empty");
-	const workspaceRoot = resolveWorkspaceRoot(options.workspaceRoot);
-	const resolvedPath = path.resolve(workspaceRoot, configuredPath);
-	const relative = path.relative(workspaceRoot, resolvedPath);
-	if (relative.startsWith("..") || path.isAbsolute(relative)) throw manifestPathValidationError(configuredPath, options.targetLabel, `resolved path "${resolvedPath}" is outside workspace root "${workspaceRoot}"`);
-	return resolvedPath;
-}
-
-//#endregion
-//#region src/version-files.ts
-function manifestTargetSuffix(targetLabel) {
-	return targetLabel ? ` for target "${targetLabel}"` : "";
-}
-async function readText(filePath, context) {
-	const absolute = resolveManifestPathInWorkspace(filePath, context);
-	try {
-		return await fs$1.readFile(absolute, "utf8");
-	} catch (error) {
-		throw new Error(`Failed reading manifest "${filePath}"${manifestTargetSuffix(context.targetLabel)}: ${String(error)}`);
+//#region src/utils/semver.ts
+const parse = (version) => {
+	const match = version.trim().match(/^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/u);
+	if (!match) throw new Error(`Invalid semantic version "${version}"`);
+	let prerelease;
+	if (match[4]) {
+		const parts = match[4].split(".");
+		const last = parts.at(-1);
+		if (!last || !/^\d+$/u.test(last) || parts.length < 2) throw new Error(`Invalid prerelease "${match[4]}". Expected format like "alpha.0"`);
+		prerelease = {
+			tag: parts.slice(0, -1).join("."),
+			num: Number(last)
+		};
 	}
+	return {
+		major: Number(match[1]),
+		minor: Number(match[2]),
+		patch: Number(match[3]),
+		prerelease
+	};
+};
+function format(version) {
+	const base = `${version.major}.${version.minor}.${version.patch}`;
+	if (!version.prerelease) return base;
+	return `${base}-${version.prerelease.tag}.${version.prerelease.num}`;
 }
-async function writeText(filePath, content, context) {
-	const absolute = resolveManifestPathInWorkspace(filePath, context);
-	try {
-		await ensureParentDirectory(absolute);
-		await fs$1.writeFile(absolute, content, "utf8");
-	} catch (error) {
-		throw new Error(`Failed writing manifest "${filePath}"${manifestTargetSuffix(context.targetLabel)}: ${String(error)}`);
+const bumpStable = (parsed, bump) => {
+	switch (bump) {
+		case "major": return {
+			major: parsed.major + 1,
+			minor: 0,
+			patch: 0
+		};
+		case "minor": return {
+			major: parsed.major,
+			minor: parsed.minor + 1,
+			patch: 0
+		};
+		case "patch": return {
+			major: parsed.major,
+			minor: parsed.minor,
+			patch: parsed.patch + 1
+		};
 	}
-}
-function parseJsonRecord(text, filePath) {
-	let parsed;
-	try {
-		parsed = JSON.parse(text);
-	} catch (error) {
-		throw new Error(`Invalid JSON in "${filePath}": ${String(error)}`);
-	}
-	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error(`Expected JSON object in "${filePath}"`);
-	return parsed;
-}
-function extractTomlSection(text, section) {
-	const escapedSection = section.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-	const sectionRegex = new RegExp(`\\[${escapedSection}\\]([\\s\\S]*?)(?=\\n\\[[^\\]]+\\]|$)`);
-	return text.match(sectionRegex)?.[1] ?? "";
-}
-function readCargoVersion(text) {
-	const match = extractTomlSection(text, "package").match(/^\s*version\s*=\s*"([^"]+)"\s*$/mu);
-	if (!match) throw new Error("Cargo.toml missing [package] version = \"x.y.z\"");
-	const version = match[1];
-	if (!version) throw new Error("Cargo.toml missing [package] version = \"x.y.z\"");
-	return version;
-}
-function readPyprojectVersion(text) {
-	const project = extractTomlSection(text, "project");
-	const poetry = extractTomlSection(text, "tool.poetry");
-	const projectMatch = project.match(/^\s*version\s*=\s*"([^"]+)"\s*$/mu);
-	if (projectMatch) {
-		const version = projectMatch[1];
-		if (version) return version;
-	}
-	const poetryMatch = poetry.match(/^\s*version\s*=\s*"([^"]+)"\s*$/mu);
-	if (poetryMatch) {
-		const version = poetryMatch[1];
-		if (version) return version;
-	}
-	throw new Error("pyproject.toml missing supported version layout. Expected [project] version or [tool.poetry] version.");
-}
-function updateTomlSectionVersion(text, section, nextVersion) {
-	const escapedSection = section.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-	const sectionPattern = new RegExp(`(\\[${escapedSection}\\][\\s\\S]*?^\\s*version\\s*=\\s*")([^"]+)(")`, "m");
-	if (!sectionPattern.test(text)) return text;
-	return text.replace(sectionPattern, `$1${nextVersion}$3`);
-}
-async function readManifestVersion(filePath, type, context = {}) {
-	const text = await readText(filePath, context);
-	if (type === "node-package-json") {
-		const parsed = parseJsonRecord(text, filePath);
-		const version = String(parsed.version ?? "").trim();
-		if (!version) throw new Error(`Target manifest "${filePath}" missing package.json version field`);
-		return version;
-	}
-	if (type === "rust-cargo-toml") return readCargoVersion(text);
-	if (type === "python-pyproject-toml") return readPyprojectVersion(text);
-	const exhaustiveCheck = type;
-	throw new Error(`Unsupported manifest type "${String(exhaustiveCheck)}"`);
-}
-async function writeManifestVersion(filePath, type, nextVersion, context = {}) {
-	const text = await readText(filePath, context);
-	let updated = text;
-	if (type === "node-package-json") {
-		const parsed = parseJsonRecord(text, filePath);
-		parsed.version = nextVersion;
-		updated = `${JSON.stringify(parsed, null, 2)}\n`;
-		await writeText(filePath, updated, context);
-		return;
-	}
-	if (type === "rust-cargo-toml") {
-		updated = updateTomlSectionVersion(text, "package", nextVersion);
-		if (updated === text) throw new Error(`Target manifest "${filePath}" missing [package] version field`);
-		await writeText(filePath, updated, context);
-		return;
-	}
-	if (type === "python-pyproject-toml") {
-		const fromProject = updateTomlSectionVersion(text, "project", nextVersion);
-		if (fromProject !== text) {
-			await writeText(filePath, fromProject, context);
-			return;
+};
+const next = (currentVersion, bump, prereleaseTag) => {
+	if (typeof currentVersion !== "string") return format(currentVersion);
+	const parsed = parse(currentVersion);
+	switch (bump) {
+		case "none": return currentVersion.trim();
+		case "pre":
+			if (!parsed.prerelease) throw new Error(`Cannot increment prerelease for stable version "${currentVersion}"`);
+			if (!prereleaseTag || prereleaseTag === parsed.prerelease.tag) return format({
+				...parsed,
+				prerelease: {
+					tag: parsed.prerelease.tag,
+					num: parsed.prerelease.num + 1
+				}
+			});
+			return format({
+				...parsed,
+				prerelease: {
+					tag: prereleaseTag,
+					num: 0
+				}
+			});
+		case "major":
+		case "minor":
+		case "patch": {
+			const bumped = bumpStable(parsed, bump);
+			if (!prereleaseTag) return format(bumped);
+			return format({
+				...bumped,
+				prerelease: {
+					tag: prereleaseTag,
+					num: 0
+				}
+			});
 		}
-		const fromPoetry = updateTomlSectionVersion(text, "tool.poetry", nextVersion);
-		if (fromPoetry === text) throw new Error(`Target manifest "${filePath}" missing [project] version or [tool.poetry] version field`);
-		await writeText(filePath, fromPoetry, context);
-		return;
+		case "release":
+			if (!parsed.prerelease) throw new Error(`Cannot release stable version "${currentVersion}" because it is not a prerelease`);
+			return `${parsed.major}.${parsed.minor}.${parsed.patch}`;
+		default: {
+			const exhaustiveCheck = bump;
+			throw new Error(`Unsupported bump level "${String(exhaustiveCheck)}"`);
+		}
 	}
-	const exhaustiveCheck = type;
-	throw new Error(`Unsupported manifest type "${String(exhaustiveCheck)}"`);
+};
+const semver = {
+	parse,
+	next,
+	format
+};
+
+//#endregion
+//#region src/action/changelog/index.ts
+const DEFAULT_CHANGELOG_CATEGORY_MAP = Object.freeze({
+	feat: "Features",
+	fix: "Bug Fixes",
+	docs: "Documentation",
+	perf: "Performance",
+	refactor: "Refactoring",
+	ci: "CI",
+	chore: "Chores",
+	test: "Tests",
+	build: "Other",
+	style: "Other",
+	other: "Other"
+});
+const DEFAULT_CHANGELOG_SECTION_ORDER = Object.freeze([
+	"Features",
+	"Bug Fixes",
+	"Documentation",
+	"Performance",
+	"Refactoring",
+	"CI",
+	"Chores",
+	"Tests",
+	"Other"
+]);
+const CATEGORY_TITLE_LABELS = {
+	Features: "✨ Features",
+	"Bug Fixes": "🐛 Bug Fixes",
+	Documentation: "📚 Documentation",
+	Performance: "🐎 Performance",
+	Refactoring: "🔨 Refactoring",
+	CI: "♾️ CI",
+	Chores: "🧹 Chores",
+	Tests: "✅ Tests",
+	Other: "🔧 Other"
+};
+const MARKDOWN_ESCAPABLE_PATTERN = /([\\`*_{}\[\]()#+.!|>@])/gu;
+function escapeMarkdownText(value) {
+	return value.replace(MARKDOWN_ESCAPABLE_PATTERN, "\\$1");
+}
+function formatSha(sha, repo, onGithub = true) {
+	const shortSha = sha.slice(0, 7);
+	if (!repo) return shortSha;
+	if (onGithub) return `[${shortSha}](https://github.com/${repo}/commit/${sha})`;
+	else return shortSha;
+}
+function sectionForType(type, categoryMap) {
+	return categoryMap[(type ?? "other").toLowerCase()] ?? categoryMap.other ?? "Other";
+}
+function renderChangelog(commits, repo, config) {
+	const categoryMap = config?.categoryMap ?? DEFAULT_CHANGELOG_CATEGORY_MAP;
+	const sectionOrder = config?.sectionOrder ?? [...DEFAULT_CHANGELOG_SECTION_ORDER];
+	const groups = /* @__PURE__ */ new Map();
+	for (const commit of commits) {
+		const section = sectionForType(commit.type, categoryMap);
+		const escapedDescription = escapeMarkdownText(commit.description);
+		const escapedScope = commit.scope ? escapeMarkdownText(commit.scope) : null;
+		const scopedDescription = escapedScope ? `${escapedScope}: ${escapedDescription}` : escapedDescription;
+		const shaText = formatSha(commit.sha, repo);
+		const entry = `- ${scopedDescription} (thanks ${commit.displayAuthor}) (${shaText})`;
+		if (!groups.has(section)) groups.set(section, []);
+		groups.get(section)?.push(entry);
+	}
+	const orderedSet = new Set(sectionOrder);
+	const fallbackSections = [...groups.keys()].filter((section) => !orderedSet.has(section)).sort((a, b) => a.localeCompare(b));
+	const orderedSections = [...sectionOrder, ...fallbackSections];
+	const chunks = [];
+	for (const section of orderedSections) {
+		const entries = groups.get(section);
+		if (!entries || entries.length === 0) continue;
+		const title = CATEGORY_TITLE_LABELS[section] ?? section;
+		chunks.push(`## ${title}`);
+		chunks.push(...entries);
+		chunks.push("");
+	}
+	return chunks.length > 0 ? chunks.join("\n").trim() : "";
 }
 
 //#endregion
-//#region src/analyze.ts
-function rangeResolutionKey(config, target) {
-	if (config.rangeStrategy === "latest-tag-with-prefix") return `${config.rangeStrategy}:${config.toRef}:${target.tagPrefix ?? ""}`;
+//#region src/action/target/analysis.ts
+const applyNoBumpPolicy = ({ changed, bumpFromCommits, noBumpPolicy }) => {
+	if (!changed) return {
+		bump: "none",
+		skipRelease: true
+	};
+	if (bumpFromCommits !== "none") return {
+		bump: bumpFromCommits,
+		skipRelease: false
+	};
+	if (noBumpPolicy === "patch") return {
+		bump: "patch",
+		skipRelease: false
+	};
+	if (noBumpPolicy === "keep") return {
+		bump: "none",
+		skipRelease: false
+	};
+	return {
+		bump: "none",
+		skipRelease: true
+	};
+};
+const rangeResolutionKey = (config, target) => {
+	if (config.rangeStrategy === "latest-tag-with-prefix") return `${config.rangeStrategy}:${config.toRef}${target.tagPrefix ? `:${target.tagPrefix}` : ""}`;
 	return `${config.rangeStrategy}:${config.fromRef}:${config.toRef}`;
-}
-function summarizeRanges(targetRanges) {
+};
+const summarizeRanges = (targetRanges) => {
 	const uniqueExpressions = [...new Set(targetRanges.map((entry) => entry.expression))];
 	if (uniqueExpressions.length === 1) return uniqueExpressions[0] ?? "";
 	return targetRanges.map((entry) => `${entry.label}:${entry.expression}`).join(" | ");
-}
-async function analyzeRepository(config, logger) {
-	const resolvedRanges = /* @__PURE__ */ new Map();
+};
+const analyze = async (rellu) => {
+	const { config, inputs } = rellu;
+	const ranges = /* @__PURE__ */ new Map();
+	const targetRanges = [];
 	const commitsByRangeExpression = /* @__PURE__ */ new Map();
 	const parsedCommitsByRangeExpression = /* @__PURE__ */ new Map();
-	const targetRanges = [];
 	const uniqueCommitShas = /* @__PURE__ */ new Set();
 	const results = [];
+	const gh = getGh(inputs);
 	for (const target of config.targets) {
-		const key = rangeResolutionKey(config, target);
-		let range = resolvedRanges.get(key);
+		const key = rangeResolutionKey(inputs, target);
+		let range = ranges.get(key);
 		if (!range) {
-			range = await resolveGitRangeWithStrategy({
-				strategy: config.rangeStrategy,
-				fromRef: config.fromRef,
-				toRef: config.toRef,
+			range = await git.range.resolve({
+				strategy: inputs.rangeStrategy,
+				fromRef: inputs.fromRef,
+				toRef: inputs.toRef,
 				targetLabel: target.label,
 				...target.tagPrefix ? { tagPrefix: target.tagPrefix } : {}
-			}, logger);
-			resolvedRanges.set(key, range);
+			});
+			ranges.set(key, range);
 		}
 		targetRanges.push({
 			label: target.label,
@@ -21793,7 +27706,8 @@ async function analyzeRepository(config, logger) {
 		});
 		let commits = commitsByRangeExpression.get(range.expression);
 		if (!commits) {
-			commits = await enrichCommitsWithGitHubUsernames(await collectCommitsInRange(range.expression, logger), config.repo, config.githubServerUrl, config.githubToken, logger);
+			const rawCommits = await git.range.collectCommits(range.expression);
+			commits = await gh.commit.enrich(rawCommits, inputs.repo);
 			commitsByRangeExpression.set(range.expression, commits);
 			for (const commit of commits) uniqueCommitShas.add(commit.sha);
 		}
@@ -21801,37 +27715,35 @@ async function analyzeRepository(config, logger) {
 		if (!commitsWithConventional) {
 			commitsWithConventional = commits.map((commit) => ({
 				...commit,
-				conventional: parseConventionalCommit(commit.subject, commit.body)
+				conventional: git.commits.conventional.parse(commit.subject, commit.body)
 			}));
 			parsedCommitsByRangeExpression.set(range.expression, commitsWithConventional);
 		}
 		const impact = analyzeTargetImpacts([target], commitsWithConventional)[0];
 		if (!impact) continue;
-		const currentVersion = await readManifestVersion(target.version.file, target.version.type, { targetLabel: target.label });
+		const currentVersion = await manifests.read(target.version.file, target.version.type, { targetLabel: target.label });
 		const relevantParsed = impact.relevantCommits.map((commit) => {
-			const parsed = assertConventionalCommitValidity(commit.conventional, config.strictConventionalCommits, target.label, commit.sha, commit.subject, { isMerge: commit.isMerge });
-			const normalizedType = normalizedCommitType(parsed);
+			const parsed = git.commits.conventional.valid(commit.conventional, inputs.strictConventionalCommits, target.label, commit.sha, commit.subject, { isMerge: commit.isMerge });
 			return {
 				...commit,
-				conventional: {
-					...parsed,
-					type: normalizedType
-				}
+				conventional: parsed
 			};
 		});
-		const bumpFromCommits = resolveBumpFromCommits(relevantParsed.map((commit) => commit.conventional), config.bumpRules);
+		const parsedForBump = relevantParsed.map((commit) => commit.conventional);
+		const bumpFromCommits = git.commits.conventional.resolveBump(parsedForBump, config.bumpRules ?? defaultBumpRules);
 		const policyOutcome = applyNoBumpPolicy({
 			changed: impact.changed,
 			bumpFromCommits,
-			noBumpPolicy: config.noBumpPolicy
+			noBumpPolicy: inputs.noBumpPolicy
 		});
-		if (impact.changed && bumpFromCommits === "none") logger.info(`Target ${target.label} has no bump-worthy commits. Applying no-bump policy "${config.noBumpPolicy}".`);
-		const nextVersion = policyOutcome.skipRelease ? currentVersion : calculateNextVersion(currentVersion, policyOutcome.bump);
+		if (impact.changed && bumpFromCommits === "none") log.info(`Target ${target.label} has no bump-worthy commits. Applying no-bump policy "${inputs.noBumpPolicy}".`);
+		const nextVersion = policyOutcome.skipRelease ? currentVersion : semver.next(currentVersion, policyOutcome.bump);
 		const outputCommits = relevantParsed.map((commit) => ({
 			sha: commit.sha,
 			type: commit.conventional.type,
 			scope: commit.conventional.scope,
 			description: commit.conventional.description,
+			emoji: commit.conventional.emoji,
 			isBreaking: commit.conventional.isBreaking,
 			rawSubject: commit.subject,
 			body: commit.body,
@@ -21847,7 +27759,7 @@ async function analyzeRepository(config, logger) {
 			scope: entry.scope,
 			type: entry.type,
 			displayAuthor: entry.author.display
-		})), config.repo, config.githubServerUrl, config.changelog);
+		})), inputs.repo, config.changelog);
 		const result = {
 			label: target.label,
 			changed: impact.changed,
@@ -21862,1248 +27774,42 @@ async function analyzeRepository(config, logger) {
 			skipRelease: policyOutcome.skipRelease
 		};
 		results.push(result);
-		logger.info(`Target ${target.label}: changed=${String(impact.changed)}, commits=${impact.commitCount}, bump=${policyOutcome.bump}, nextVersion=${nextVersion}`);
+		log.info(`Target ${target.label}: changed=${String(impact.changed)}, commits=${impact.commitCount}, bump=${policyOutcome.bump}, nextVersion=${nextVersion}`);
 	}
 	return {
 		range: summarizeRanges(targetRanges),
 		commitCount: uniqueCommitShas.size,
 		results
 	};
-}
-
-//#endregion
-//#region node_modules/@actions/core/lib/utils.js
-/**
-* Sanitizes an input into a string so it can be passed into issueCommand safely
-* @param input input to sanitize into a string
-*/
-function toCommandValue(input) {
-	if (input === null || input === void 0) return "";
-	else if (typeof input === "string" || input instanceof String) return input;
-	return JSON.stringify(input);
-}
-/**
-*
-* @param annotationProperties
-* @returns The command properties to send with the actual annotation command
-* See IssueCommandProperties: https://github.com/actions/runner/blob/main/src/Runner.Worker/ActionCommandManager.cs#L646
-*/
-function toCommandProperties(annotationProperties) {
-	if (!Object.keys(annotationProperties).length) return {};
-	return {
-		title: annotationProperties.title,
-		file: annotationProperties.file,
-		line: annotationProperties.startLine,
-		endLine: annotationProperties.endLine,
-		col: annotationProperties.startColumn,
-		endColumn: annotationProperties.endColumn
-	};
-}
-
-//#endregion
-//#region node_modules/@actions/core/lib/command.js
-/**
-* Issues a command to the GitHub Actions runner
-*
-* @param command - The command name to issue
-* @param properties - Additional properties for the command (key-value pairs)
-* @param message - The message to include with the command
-* @remarks
-* This function outputs a specially formatted string to stdout that the Actions
-* runner interprets as a command. These commands can control workflow behavior,
-* set outputs, create annotations, mask values, and more.
-*
-* Command Format:
-*   ::name key=value,key=value::message
-*
-* @example
-* ```typescript
-* // Issue a warning annotation
-* issueCommand('warning', {}, 'This is a warning message');
-* // Output: ::warning::This is a warning message
-*
-* // Set an environment variable
-* issueCommand('set-env', { name: 'MY_VAR' }, 'some value');
-* // Output: ::set-env name=MY_VAR::some value
-*
-* // Add a secret mask
-* issueCommand('add-mask', {}, 'secretValue123');
-* // Output: ::add-mask::secretValue123
-* ```
-*
-* @internal
-* This is an internal utility function that powers the public API functions
-* such as setSecret, warning, error, and exportVariable.
-*/
-function issueCommand(command, properties, message) {
-	const cmd = new Command(command, properties, message);
-	process.stdout.write(cmd.toString() + os$1.EOL);
-}
-const CMD_STRING = "::";
-var Command = class {
-	constructor(command, properties, message) {
-		if (!command) command = "missing.command";
-		this.command = command;
-		this.properties = properties;
-		this.message = message;
-	}
-	toString() {
-		let cmdStr = CMD_STRING + this.command;
-		if (this.properties && Object.keys(this.properties).length > 0) {
-			cmdStr += " ";
-			let first = true;
-			for (const key in this.properties) if (this.properties.hasOwnProperty(key)) {
-				const val = this.properties[key];
-				if (val) {
-					if (first) first = false;
-					else cmdStr += ",";
-					cmdStr += `${key}=${escapeProperty(val)}`;
-				}
-			}
-		}
-		cmdStr += `${CMD_STRING}${escapeData(this.message)}`;
-		return cmdStr;
-	}
-};
-function escapeData(s) {
-	return toCommandValue(s).replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A");
-}
-function escapeProperty(s) {
-	return toCommandValue(s).replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A").replace(/:/g, "%3A").replace(/,/g, "%2C");
-}
-
-//#endregion
-//#region node_modules/@actions/core/lib/file-command.js
-function issueFileCommand(command, message) {
-	const filePath = process.env[`GITHUB_${command}`];
-	if (!filePath) throw new Error(`Unable to find environment variable for file command ${command}`);
-	if (!fs$2.existsSync(filePath)) throw new Error(`Missing file at path: ${filePath}`);
-	fs$2.appendFileSync(filePath, `${toCommandValue(message)}${os$1.EOL}`, { encoding: "utf8" });
-}
-function prepareKeyValueMessage(key, value) {
-	const delimiter = `ghadelimiter_${crypto.randomUUID()}`;
-	const convertedValue = toCommandValue(value);
-	if (key.includes(delimiter)) throw new Error(`Unexpected input: name should not contain the delimiter "${delimiter}"`);
-	if (convertedValue.includes(delimiter)) throw new Error(`Unexpected input: value should not contain the delimiter "${delimiter}"`);
-	return `${key}<<${delimiter}${os$1.EOL}${convertedValue}${os$1.EOL}${delimiter}`;
-}
-
-//#endregion
-//#region node_modules/@actions/http-client/lib/index.js
-var import_tunnel = /* @__PURE__ */ __toESM(require_tunnel(), 1);
-var __awaiter$5 = void 0 && (void 0).__awaiter || function(thisArg, _arguments, P, generator) {
-	function adopt(value) {
-		return value instanceof P ? value : new P(function(resolve) {
-			resolve(value);
-		});
-	}
-	return new (P || (P = Promise))(function(resolve, reject) {
-		function fulfilled(value) {
-			try {
-				step(generator.next(value));
-			} catch (e) {
-				reject(e);
-			}
-		}
-		function rejected(value) {
-			try {
-				step(generator["throw"](value));
-			} catch (e) {
-				reject(e);
-			}
-		}
-		function step(result) {
-			result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected);
-		}
-		step((generator = generator.apply(thisArg, _arguments || [])).next());
-	});
-};
-var HttpCodes;
-(function(HttpCodes) {
-	HttpCodes[HttpCodes["OK"] = 200] = "OK";
-	HttpCodes[HttpCodes["MultipleChoices"] = 300] = "MultipleChoices";
-	HttpCodes[HttpCodes["MovedPermanently"] = 301] = "MovedPermanently";
-	HttpCodes[HttpCodes["ResourceMoved"] = 302] = "ResourceMoved";
-	HttpCodes[HttpCodes["SeeOther"] = 303] = "SeeOther";
-	HttpCodes[HttpCodes["NotModified"] = 304] = "NotModified";
-	HttpCodes[HttpCodes["UseProxy"] = 305] = "UseProxy";
-	HttpCodes[HttpCodes["SwitchProxy"] = 306] = "SwitchProxy";
-	HttpCodes[HttpCodes["TemporaryRedirect"] = 307] = "TemporaryRedirect";
-	HttpCodes[HttpCodes["PermanentRedirect"] = 308] = "PermanentRedirect";
-	HttpCodes[HttpCodes["BadRequest"] = 400] = "BadRequest";
-	HttpCodes[HttpCodes["Unauthorized"] = 401] = "Unauthorized";
-	HttpCodes[HttpCodes["PaymentRequired"] = 402] = "PaymentRequired";
-	HttpCodes[HttpCodes["Forbidden"] = 403] = "Forbidden";
-	HttpCodes[HttpCodes["NotFound"] = 404] = "NotFound";
-	HttpCodes[HttpCodes["MethodNotAllowed"] = 405] = "MethodNotAllowed";
-	HttpCodes[HttpCodes["NotAcceptable"] = 406] = "NotAcceptable";
-	HttpCodes[HttpCodes["ProxyAuthenticationRequired"] = 407] = "ProxyAuthenticationRequired";
-	HttpCodes[HttpCodes["RequestTimeout"] = 408] = "RequestTimeout";
-	HttpCodes[HttpCodes["Conflict"] = 409] = "Conflict";
-	HttpCodes[HttpCodes["Gone"] = 410] = "Gone";
-	HttpCodes[HttpCodes["TooManyRequests"] = 429] = "TooManyRequests";
-	HttpCodes[HttpCodes["InternalServerError"] = 500] = "InternalServerError";
-	HttpCodes[HttpCodes["NotImplemented"] = 501] = "NotImplemented";
-	HttpCodes[HttpCodes["BadGateway"] = 502] = "BadGateway";
-	HttpCodes[HttpCodes["ServiceUnavailable"] = 503] = "ServiceUnavailable";
-	HttpCodes[HttpCodes["GatewayTimeout"] = 504] = "GatewayTimeout";
-})(HttpCodes || (HttpCodes = {}));
-var Headers;
-(function(Headers) {
-	Headers["Accept"] = "accept";
-	Headers["ContentType"] = "content-type";
-})(Headers || (Headers = {}));
-var MediaTypes;
-(function(MediaTypes) {
-	MediaTypes["ApplicationJson"] = "application/json";
-})(MediaTypes || (MediaTypes = {}));
-const HttpRedirectCodes = [
-	HttpCodes.MovedPermanently,
-	HttpCodes.ResourceMoved,
-	HttpCodes.SeeOther,
-	HttpCodes.TemporaryRedirect,
-	HttpCodes.PermanentRedirect
-];
-const HttpResponseRetryCodes = [
-	HttpCodes.BadGateway,
-	HttpCodes.ServiceUnavailable,
-	HttpCodes.GatewayTimeout
-];
-
-//#endregion
-//#region node_modules/@actions/http-client/lib/auth.js
-var __awaiter$4 = void 0 && (void 0).__awaiter || function(thisArg, _arguments, P, generator) {
-	function adopt(value) {
-		return value instanceof P ? value : new P(function(resolve) {
-			resolve(value);
-		});
-	}
-	return new (P || (P = Promise))(function(resolve, reject) {
-		function fulfilled(value) {
-			try {
-				step(generator.next(value));
-			} catch (e) {
-				reject(e);
-			}
-		}
-		function rejected(value) {
-			try {
-				step(generator["throw"](value));
-			} catch (e) {
-				reject(e);
-			}
-		}
-		function step(result) {
-			result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected);
-		}
-		step((generator = generator.apply(thisArg, _arguments || [])).next());
-	});
 };
 
 //#endregion
-//#region node_modules/@actions/core/lib/oidc-utils.js
-var __awaiter$3 = void 0 && (void 0).__awaiter || function(thisArg, _arguments, P, generator) {
-	function adopt(value) {
-		return value instanceof P ? value : new P(function(resolve) {
-			resolve(value);
-		});
-	}
-	return new (P || (P = Promise))(function(resolve, reject) {
-		function fulfilled(value) {
-			try {
-				step(generator.next(value));
-			} catch (e) {
-				reject(e);
-			}
-		}
-		function rejected(value) {
-			try {
-				step(generator["throw"](value));
-			} catch (e) {
-				reject(e);
-			}
-		}
-		function step(result) {
-			result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected);
-		}
-		step((generator = generator.apply(thisArg, _arguments || [])).next());
-	});
-};
-
-//#endregion
-//#region node_modules/@actions/core/lib/summary.js
-var __awaiter$2 = void 0 && (void 0).__awaiter || function(thisArg, _arguments, P, generator) {
-	function adopt(value) {
-		return value instanceof P ? value : new P(function(resolve) {
-			resolve(value);
-		});
-	}
-	return new (P || (P = Promise))(function(resolve, reject) {
-		function fulfilled(value) {
-			try {
-				step(generator.next(value));
-			} catch (e) {
-				reject(e);
-			}
-		}
-		function rejected(value) {
-			try {
-				step(generator["throw"](value));
-			} catch (e) {
-				reject(e);
-			}
-		}
-		function step(result) {
-			result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected);
-		}
-		step((generator = generator.apply(thisArg, _arguments || [])).next());
-	});
-};
-const { access, appendFile, writeFile } = promises;
-const SUMMARY_ENV_VAR = "GITHUB_STEP_SUMMARY";
-var Summary = class {
-	constructor() {
-		this._buffer = "";
-	}
-	/**
-	* Finds the summary file path from the environment, rejects if env var is not found or file does not exist
-	* Also checks r/w permissions.
-	*
-	* @returns step summary file path
-	*/
-	filePath() {
-		return __awaiter$2(this, void 0, void 0, function* () {
-			if (this._filePath) return this._filePath;
-			const pathFromEnv = process.env[SUMMARY_ENV_VAR];
-			if (!pathFromEnv) throw new Error(`Unable to find environment variable for $${SUMMARY_ENV_VAR}. Check if your runtime environment supports job summaries.`);
-			try {
-				yield access(pathFromEnv, constants.R_OK | constants.W_OK);
-			} catch (_a) {
-				throw new Error(`Unable to access summary file: '${pathFromEnv}'. Check if the file has correct read/write permissions.`);
-			}
-			this._filePath = pathFromEnv;
-			return this._filePath;
-		});
-	}
-	/**
-	* Wraps content in an HTML tag, adding any HTML attributes
-	*
-	* @param {string} tag HTML tag to wrap
-	* @param {string | null} content content within the tag
-	* @param {[attribute: string]: string} attrs key-value list of HTML attributes to add
-	*
-	* @returns {string} content wrapped in HTML element
-	*/
-	wrap(tag, content, attrs = {}) {
-		const htmlAttrs = Object.entries(attrs).map(([key, value]) => ` ${key}="${value}"`).join("");
-		if (!content) return `<${tag}${htmlAttrs}>`;
-		return `<${tag}${htmlAttrs}>${content}</${tag}>`;
-	}
-	/**
-	* Writes text in the buffer to the summary buffer file and empties buffer. Will append by default.
-	*
-	* @param {SummaryWriteOptions} [options] (optional) options for write operation
-	*
-	* @returns {Promise<Summary>} summary instance
-	*/
-	write(options) {
-		return __awaiter$2(this, void 0, void 0, function* () {
-			const overwrite = !!(options === null || options === void 0 ? void 0 : options.overwrite);
-			const filePath = yield this.filePath();
-			yield (overwrite ? writeFile : appendFile)(filePath, this._buffer, { encoding: "utf8" });
-			return this.emptyBuffer();
-		});
-	}
-	/**
-	* Clears the summary buffer and wipes the summary file
-	*
-	* @returns {Summary} summary instance
-	*/
-	clear() {
-		return __awaiter$2(this, void 0, void 0, function* () {
-			return this.emptyBuffer().write({ overwrite: true });
-		});
-	}
-	/**
-	* Returns the current summary buffer as a string
-	*
-	* @returns {string} string of summary buffer
-	*/
-	stringify() {
-		return this._buffer;
-	}
-	/**
-	* If the summary buffer is empty
-	*
-	* @returns {boolen} true if the buffer is empty
-	*/
-	isEmptyBuffer() {
-		return this._buffer.length === 0;
-	}
-	/**
-	* Resets the summary buffer without writing to summary file
-	*
-	* @returns {Summary} summary instance
-	*/
-	emptyBuffer() {
-		this._buffer = "";
-		return this;
-	}
-	/**
-	* Adds raw text to the summary buffer
-	*
-	* @param {string} text content to add
-	* @param {boolean} [addEOL=false] (optional) append an EOL to the raw text (default: false)
-	*
-	* @returns {Summary} summary instance
-	*/
-	addRaw(text, addEOL = false) {
-		this._buffer += text;
-		return addEOL ? this.addEOL() : this;
-	}
-	/**
-	* Adds the operating system-specific end-of-line marker to the buffer
-	*
-	* @returns {Summary} summary instance
-	*/
-	addEOL() {
-		return this.addRaw(EOL);
-	}
-	/**
-	* Adds an HTML codeblock to the summary buffer
-	*
-	* @param {string} code content to render within fenced code block
-	* @param {string} lang (optional) language to syntax highlight code
-	*
-	* @returns {Summary} summary instance
-	*/
-	addCodeBlock(code, lang) {
-		const attrs = Object.assign({}, lang && { lang });
-		const element = this.wrap("pre", this.wrap("code", code), attrs);
-		return this.addRaw(element).addEOL();
-	}
-	/**
-	* Adds an HTML list to the summary buffer
-	*
-	* @param {string[]} items list of items to render
-	* @param {boolean} [ordered=false] (optional) if the rendered list should be ordered or not (default: false)
-	*
-	* @returns {Summary} summary instance
-	*/
-	addList(items, ordered = false) {
-		const tag = ordered ? "ol" : "ul";
-		const listItems = items.map((item) => this.wrap("li", item)).join("");
-		const element = this.wrap(tag, listItems);
-		return this.addRaw(element).addEOL();
-	}
-	/**
-	* Adds an HTML table to the summary buffer
-	*
-	* @param {SummaryTableCell[]} rows table rows
-	*
-	* @returns {Summary} summary instance
-	*/
-	addTable(rows) {
-		const tableBody = rows.map((row) => {
-			const cells = row.map((cell) => {
-				if (typeof cell === "string") return this.wrap("td", cell);
-				const { header, data, colspan, rowspan } = cell;
-				const tag = header ? "th" : "td";
-				const attrs = Object.assign(Object.assign({}, colspan && { colspan }), rowspan && { rowspan });
-				return this.wrap(tag, data, attrs);
-			}).join("");
-			return this.wrap("tr", cells);
-		}).join("");
-		const element = this.wrap("table", tableBody);
-		return this.addRaw(element).addEOL();
-	}
-	/**
-	* Adds a collapsable HTML details element to the summary buffer
-	*
-	* @param {string} label text for the closed state
-	* @param {string} content collapsable content
-	*
-	* @returns {Summary} summary instance
-	*/
-	addDetails(label, content) {
-		const element = this.wrap("details", this.wrap("summary", label) + content);
-		return this.addRaw(element).addEOL();
-	}
-	/**
-	* Adds an HTML image tag to the summary buffer
-	*
-	* @param {string} src path to the image you to embed
-	* @param {string} alt text description of the image
-	* @param {SummaryImageOptions} options (optional) addition image attributes
-	*
-	* @returns {Summary} summary instance
-	*/
-	addImage(src, alt, options) {
-		const { width, height } = options || {};
-		const attrs = Object.assign(Object.assign({}, width && { width }), height && { height });
-		const element = this.wrap("img", null, Object.assign({
-			src,
-			alt
-		}, attrs));
-		return this.addRaw(element).addEOL();
-	}
-	/**
-	* Adds an HTML section heading element
-	*
-	* @param {string} text heading text
-	* @param {number | string} [level=1] (optional) the heading level, default: 1
-	*
-	* @returns {Summary} summary instance
-	*/
-	addHeading(text, level) {
-		const tag = `h${level}`;
-		const allowedTag = [
-			"h1",
-			"h2",
-			"h3",
-			"h4",
-			"h5",
-			"h6"
-		].includes(tag) ? tag : "h1";
-		const element = this.wrap(allowedTag, text);
-		return this.addRaw(element).addEOL();
-	}
-	/**
-	* Adds an HTML thematic break (<hr>) to the summary buffer
-	*
-	* @returns {Summary} summary instance
-	*/
-	addSeparator() {
-		const element = this.wrap("hr", null);
-		return this.addRaw(element).addEOL();
-	}
-	/**
-	* Adds an HTML line break (<br>) to the summary buffer
-	*
-	* @returns {Summary} summary instance
-	*/
-	addBreak() {
-		const element = this.wrap("br", null);
-		return this.addRaw(element).addEOL();
-	}
-	/**
-	* Adds an HTML blockquote to the summary buffer
-	*
-	* @param {string} text quote text
-	* @param {string} cite (optional) citation url
-	*
-	* @returns {Summary} summary instance
-	*/
-	addQuote(text, cite) {
-		const attrs = Object.assign({}, cite && { cite });
-		const element = this.wrap("blockquote", text, attrs);
-		return this.addRaw(element).addEOL();
-	}
-	/**
-	* Adds an HTML anchor tag to the summary buffer
-	*
-	* @param {string} text link text/content
-	* @param {string} href hyperlink
-	*
-	* @returns {Summary} summary instance
-	*/
-	addLink(text, href) {
-		const element = this.wrap("a", text, { href });
-		return this.addRaw(element).addEOL();
-	}
-};
-const _summary = new Summary();
-
-//#endregion
-//#region node_modules/@actions/core/lib/platform.js
-var __awaiter$1 = void 0 && (void 0).__awaiter || function(thisArg, _arguments, P, generator) {
-	function adopt(value) {
-		return value instanceof P ? value : new P(function(resolve) {
-			resolve(value);
-		});
-	}
-	return new (P || (P = Promise))(function(resolve, reject) {
-		function fulfilled(value) {
-			try {
-				step(generator.next(value));
-			} catch (e) {
-				reject(e);
-			}
-		}
-		function rejected(value) {
-			try {
-				step(generator["throw"](value));
-			} catch (e) {
-				reject(e);
-			}
-		}
-		function step(result) {
-			result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected);
-		}
-		step((generator = generator.apply(thisArg, _arguments || [])).next());
-	});
-};
-const platform = os.platform();
-const arch = os.arch();
-
-//#endregion
-//#region node_modules/@actions/core/lib/core.js
-var __awaiter = void 0 && (void 0).__awaiter || function(thisArg, _arguments, P, generator) {
-	function adopt(value) {
-		return value instanceof P ? value : new P(function(resolve) {
-			resolve(value);
-		});
-	}
-	return new (P || (P = Promise))(function(resolve, reject) {
-		function fulfilled(value) {
-			try {
-				step(generator.next(value));
-			} catch (e) {
-				reject(e);
-			}
-		}
-		function rejected(value) {
-			try {
-				step(generator["throw"](value));
-			} catch (e) {
-				reject(e);
-			}
-		}
-		function step(result) {
-			result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected);
-		}
-		step((generator = generator.apply(thisArg, _arguments || [])).next());
-	});
-};
-/**
-* The code to exit an action
-*/
-var ExitCode;
-(function(ExitCode) {
-	/**
-	* A code indicating that the action was successful
-	*/
-	ExitCode[ExitCode["Success"] = 0] = "Success";
-	/**
-	* A code indicating that the action was a failure
-	*/
-	ExitCode[ExitCode["Failure"] = 1] = "Failure";
-})(ExitCode || (ExitCode = {}));
-/**
-* Gets the value of an input.
-* Unless trimWhitespace is set to false in InputOptions, the value is also trimmed.
-* Returns an empty string if the value is not defined.
-*
-* @param     name     name of the input to get
-* @param     options  optional. See InputOptions.
-* @returns   string
-*/
-function getInput(name, options) {
-	const val = process.env[`INPUT_${name.replace(/ /g, "_").toUpperCase()}`] || "";
-	if (options && options.required && !val) throw new Error(`Input required and not supplied: ${name}`);
-	if (options && options.trimWhitespace === false) return val;
-	return val.trim();
-}
-/**
-* Sets the value of an output.
-*
-* @param     name     name of the output to set
-* @param     value    value to store. Non-string values will be converted to a string via JSON.stringify
-*/
-function setOutput$1(name, value) {
-	if (process.env["GITHUB_OUTPUT"] || "") return issueFileCommand("OUTPUT", prepareKeyValueMessage(name, value));
-	process.stdout.write(os$1.EOL);
-	issueCommand("set-output", { name }, toCommandValue(value));
-}
-/**
-* Sets the action status to failed.
-* When the action exits it will be with an exit code of 1
-* @param message add error issue message
-*/
-function setFailed(message) {
-	process.exitCode = ExitCode.Failure;
-	error(message);
-}
-/**
-* Adds an error issue
-* @param message error issue message. Errors will be converted to string via toString()
-* @param properties optional properties to add to the annotation.
-*/
-function error(message, properties = {}) {
-	issueCommand("error", toCommandProperties(properties), message instanceof Error ? message.toString() : message);
-}
-/**
-* Adds a warning issue
-* @param message warning issue message. Errors will be converted to string via toString()
-* @param properties optional properties to add to the annotation.
-*/
-function warning(message, properties = {}) {
-	issueCommand("warning", toCommandProperties(properties), message instanceof Error ? message.toString() : message);
-}
-/**
-* Writes info to log with console.log.
-* @param message info message
-*/
-function info(message) {
-	process.stdout.write(message + os$1.EOL);
-}
-
-//#endregion
-//#region src/toolkit/core-client.ts
-const coreClient = {
-	getInput(name) {
-		return getInput(name, {
-			required: false,
-			trimWhitespace: true
-		}).trim();
-	},
-	setOutput(name, value) {
-		setOutput$1(name, value);
-	},
-	info(message) {
-		info(message);
-	},
-	warn(message) {
-		warning(message);
-	},
-	error(message) {
-		error(message);
-	},
-	setFailed(message) {
-		setFailed(message);
-	}
-};
-
-//#endregion
-//#region src/config.ts
-const SUPPORTED_MANIFEST_TYPES = new Set([
-	"node-package-json",
-	"rust-cargo-toml",
-	"python-pyproject-toml"
-]);
-const SUPPORTED_BUMP_LEVELS = new Set([
-	"major",
-	"minor",
-	"patch",
-	"none"
-]);
-const SUPPORTED_NO_BUMP_POLICIES = new Set([
-	"skip",
-	"keep",
-	"patch"
-]);
-const SUPPORTED_RANGE_STRATEGIES = new Set([
-	"explicit",
-	"latest-tag",
-	"latest-tag-with-prefix"
-]);
-const DEFAULT_BUMP_RULES = {
-	feat: "minor",
-	fix: "patch",
-	perf: "patch",
-	refactor: "patch",
-	docs: "none",
-	chore: "none",
-	test: "none",
-	build: "none",
-	ci: "none",
-	style: "none",
-	other: "none"
-};
-function readInput(name) {
-	return coreClient.getInput(name);
-}
-function parseBooleanString(value, source) {
-	if (value === "true") return true;
-	if (value === "false") return false;
-	throw new Error(`Invalid boolean value "${value}" for ${source}. Expected "true" or "false".`);
-}
-function describeValue(value) {
-	if (value === null) return "null";
-	if (Array.isArray(value)) return "array";
-	return typeof value;
-}
-function parseConfigBoolean(value, configKey) {
-	if (value === void 0) return;
-	if (typeof value === "boolean") return value;
-	if (typeof value === "string") return parseBooleanString(value.trim(), `config-file.${configKey}`);
-	throw new Error(`Invalid boolean value type for config-file.${configKey}: got ${describeValue(value)}. Expected boolean or string "true"/"false".`);
-}
-function resolveBooleanOption(inputName, inputValue, configValue, configKey, fallback) {
-	if (inputValue) return parseBooleanString(inputValue, `input "${inputName}"`);
-	return parseConfigBoolean(configValue, configKey) ?? fallback;
-}
-function parseJson(input) {
-	try {
-		return JSON.parse(input);
-	} catch (error) {
-		throw new Error(`Invalid JSON input: ${String(error)}`);
-	}
-}
-function parseJsonFromSource(input, source) {
-	try {
-		return JSON.parse(input);
-	} catch (error) {
-		throw new Error(`Invalid JSON for ${source}: ${String(error)}`);
-	}
-}
-function asRecord(value) {
-	if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Expected an object");
-	return value;
-}
-function asOptionalString(value) {
-	return typeof value === "string" ? value.trim() : "";
-}
-function loadConfigFile(filePath) {
-	const absolute = path.resolve(filePath);
-	if (!fs.existsSync(absolute)) throw new Error(`Config file not found: ${absolute}`);
-	const extension = path.extname(absolute).toLowerCase();
-	if (extension !== ".json") throw new Error(`Unsupported config file extension "${extension}". Use JSON config files.`);
-	return asRecord(parseJson(fs.readFileSync(absolute, "utf8")));
-}
-function parseTargetReleasePrConfig(value, label) {
-	if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`Target "${label}" has invalid releasePr value. Expected an object.`);
-	const record = value;
-	const enabledRaw = record.enabled;
-	const branchPrefixRaw = record.branchPrefix ?? record["branch-prefix"];
-	const baseBranchRaw = record.baseBranch ?? record["base-branch"];
-	let enabled;
-	if (enabledRaw !== void 0) if (typeof enabledRaw === "boolean") enabled = enabledRaw;
-	else if (typeof enabledRaw === "string") enabled = parseBooleanString(enabledRaw.trim(), `target "${label}" releasePr.enabled`);
-	else throw new Error(`Target "${label}" has invalid releasePr.enabled. Expected boolean or "true"/"false".`);
-	let branchPrefix;
-	if (branchPrefixRaw !== void 0) {
-		if (typeof branchPrefixRaw !== "string") throw new Error(`Target "${label}" has invalid releasePr.branchPrefix. Expected non-empty string.`);
-		const normalized = branchPrefixRaw.trim();
-		if (!normalized) throw new Error(`Target "${label}" has invalid releasePr.branchPrefix. Expected non-empty string.`);
-		branchPrefix = normalized;
-	}
-	let baseBranch;
-	if (baseBranchRaw !== void 0) {
-		if (typeof baseBranchRaw !== "string") throw new Error(`Target "${label}" has invalid releasePr.baseBranch. Expected non-empty string.`);
-		const normalized = baseBranchRaw.trim();
-		if (!normalized) throw new Error(`Target "${label}" has invalid releasePr.baseBranch. Expected non-empty string.`);
-		baseBranch = normalized;
-	}
-	return {
-		...enabled !== void 0 ? { enabled } : {},
-		...branchPrefix ? { branchPrefix } : {},
-		...baseBranch ? { baseBranch } : {}
-	};
-}
-function parseTarget(targetValue, index) {
-	const target = asRecord(targetValue);
-	const label = asOptionalString(target.label);
-	if (!label) throw new Error(`Target at index ${index} is missing required field: label`);
-	const pathsValue = target.paths;
-	if (!Array.isArray(pathsValue) || pathsValue.length === 0) throw new Error(`Target "${label}" must define at least one path glob`);
-	const paths = pathsValue.map((value) => String(value).trim());
-	for (const glob of paths) {
-		if (!glob) throw new Error(`Target "${label}" has an empty path glob`);
-		try {
-			validateGlobPattern(glob);
-		} catch (error) {
-			throw new Error(`Target "${label}" has invalid glob "${glob}": ${String(error)}`);
-		}
-	}
-	const version = asRecord(target.version);
-	const file = asOptionalString(version.file);
-	const type = asOptionalString(version.type);
-	const tagPrefix = asOptionalString(target.tagPrefix ?? target["tag-prefix"]);
-	const releasePrRaw = target.releasePr ?? target["release-pr"];
-	const parsedReleasePr = releasePrRaw !== void 0 ? parseTargetReleasePrConfig(releasePrRaw, label) : void 0;
-	const releasePr = parsedReleasePr && Object.keys(parsedReleasePr).length > 0 ? parsedReleasePr : void 0;
-	if (!file) throw new Error(`Target "${label}" is missing version.file`);
-	if (!SUPPORTED_MANIFEST_TYPES.has(type)) throw new Error(`Target "${label}" has unsupported version.type "${type}". Supported: node-package-json, rust-cargo-toml, python-pyproject-toml.`);
-	return {
-		label,
-		paths: paths.map((entry) => toPosixPath(entry)),
-		...tagPrefix ? { tagPrefix } : {},
-		...releasePr ? { releasePr } : {},
-		version: {
-			file: toPosixPath(file),
-			type
-		}
-	};
-}
-function resolveTargets(rawTargets, fileConfig) {
-	const fromFile = fileConfig.targets ?? fileConfig.apps;
-	const source = rawTargets ? parseJson(rawTargets) : fromFile;
-	if (!Array.isArray(source) || source.length === 0) throw new Error("No targets provided. Set input 'targets' or provide targets/apps in config-file.");
-	return source.map((target, index) => parseTarget(target, index));
-}
-function parseBumpRules(value) {
-	const record = asRecord(value);
-	const merged = { ...DEFAULT_BUMP_RULES };
-	for (const [commitType, rawLevel] of Object.entries(record)) {
-		const level = asOptionalString(rawLevel);
-		if (!SUPPORTED_BUMP_LEVELS.has(level)) throw new Error(`Unsupported bump level "${level}" for commit type "${commitType}"`);
-		merged[commitType] = level;
-	}
-	return merged;
-}
-function parseChangelogCategoryMap(value, source) {
-	if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${source} must be a JSON object mapping commit type to section name.`);
-	const parsed = value;
-	const categoryMap = {};
-	for (const [rawType, rawSection] of Object.entries(parsed)) {
-		const type = rawType.trim().toLowerCase();
-		if (!type) throw new Error(`${source} contains an empty commit type key.`);
-		if (typeof rawSection !== "string") throw new Error(`${source}.${rawType} must be a string section name.`);
-		const section = rawSection.trim();
-		if (!section) throw new Error(`${source}.${rawType} must map to a non-empty section name.`);
-		categoryMap[type] = section;
-	}
-	return categoryMap;
-}
-function parseChangelogSectionOrder(value, source) {
-	if (!Array.isArray(value)) throw new Error(`${source} must be a JSON array of section names.`);
-	const order = [];
-	const seen = /* @__PURE__ */ new Set();
-	for (const [index, item] of value.entries()) {
-		if (typeof item !== "string") throw new Error(`${source}[${index}] must be a string section name.`);
-		const section = item.trim();
-		if (!section) throw new Error(`${source}[${index}] must be a non-empty section name.`);
-		if (seen.has(section)) throw new Error(`${source} contains duplicate section "${section}".`);
-		seen.add(section);
-		order.push(section);
-	}
-	return order;
-}
-function resolveChangelogConfig(fileConfig) {
-	const rawCategoryMapInput = readInput("changelog-category-map");
-	const rawSectionOrderInput = readInput("changelog-section-order");
-	const categoryMapSource = rawCategoryMapInput ? "input \"changelog-category-map\"" : "config-file.changelogCategoryMap";
-	const sectionOrderSource = rawSectionOrderInput ? "input \"changelog-section-order\"" : "config-file.changelogSectionOrder";
-	const categoryMapValue = rawCategoryMapInput ? parseJsonFromSource(rawCategoryMapInput, categoryMapSource) : fileConfig.changelogCategoryMap;
-	const sectionOrderValue = rawSectionOrderInput ? parseJsonFromSource(rawSectionOrderInput, sectionOrderSource) : fileConfig.changelogSectionOrder;
-	return {
-		categoryMap: categoryMapValue ? {
-			...DEFAULT_CHANGELOG_CATEGORY_MAP,
-			...parseChangelogCategoryMap(categoryMapValue, categoryMapSource)
-		} : { ...DEFAULT_CHANGELOG_CATEGORY_MAP },
-		sectionOrder: sectionOrderValue ? parseChangelogSectionOrder(sectionOrderValue, sectionOrderSource) : [...DEFAULT_CHANGELOG_SECTION_ORDER]
-	};
-}
-function validateUniqueTargetLabels(targets) {
-	const seen = /* @__PURE__ */ new Set();
-	for (const target of targets) {
-		if (seen.has(target.label)) throw new Error(`Duplicate target label "${target.label}"`);
-		seen.add(target.label);
-	}
-}
-function loadConfig() {
-	const configFileInput = readInput("config-file");
-	const fileConfig = configFileInput ? loadConfigFile(configFileInput) : {};
-	const targets = resolveTargets(readInput("targets"), fileConfig);
-	validateUniqueTargetLabels(targets);
-	const rawBumpRules = readInput("bump-rules");
-	const bumpRules = parseBumpRules(rawBumpRules ? parseJson(rawBumpRules) : fileConfig.bumpRules ?? {});
-	const rangeStrategyRaw = readInput("range-strategy") || asOptionalString(fileConfig.rangeStrategy) || "explicit";
-	if (!SUPPORTED_RANGE_STRATEGIES.has(rangeStrategyRaw)) throw new Error(`Invalid range-strategy "${rangeStrategyRaw}". Expected explicit, latest-tag, or latest-tag-with-prefix.`);
-	const fromRef = readInput("from-ref") || asOptionalString(fileConfig.fromRef);
-	const toRef = readInput("to-ref") || asOptionalString(fileConfig.toRef) || "HEAD";
-	if (rangeStrategyRaw === "latest-tag-with-prefix") {
-		const missingPrefix = targets.filter((target) => !target.tagPrefix);
-		if (missingPrefix.length > 0) {
-			const labels = missingPrefix.map((target) => target.label).join(", ");
-			throw new Error(`range-strategy latest-tag-with-prefix requires tagPrefix on every target. Missing: ${labels}`);
-		}
-	}
-	const noBumpPolicyRaw = readInput("no-bump-policy") || asOptionalString(fileConfig.noBumpPolicy) || "skip";
-	if (!SUPPORTED_NO_BUMP_POLICIES.has(noBumpPolicyRaw)) throw new Error(`Invalid no-bump-policy "${noBumpPolicyRaw}". Expected skip, keep, or patch.`);
-	const strictInput = readInput("strict-conventional-commits");
-	const createReleasePrsInput = readInput("create-release-prs");
-	const releaseBranchPrefix = readInput("release-branch-prefix") || asOptionalString(fileConfig.releaseBranchPrefix) || "rellu/release";
-	const baseBranch = readInput("base-branch") || asOptionalString(fileConfig.baseBranch) || "main";
-	const repo = readInput("repo") || asOptionalString(fileConfig.repo) || asOptionalString(process.env.GITHUB_REPOSITORY);
-	const githubServerUrl = readInput("github-server-url") || asOptionalString(fileConfig.githubServerUrl) || "https://api.github.com";
-	const githubToken = readInput("github-token") || asOptionalString(process.env.GITHUB_TOKEN) || asOptionalString(process.env.INPUT_GITHUB_TOKEN);
-	const changelog = resolveChangelogConfig(fileConfig);
-	return {
-		rangeStrategy: rangeStrategyRaw,
-		fromRef,
-		toRef,
-		strictConventionalCommits: resolveBooleanOption("strict-conventional-commits", strictInput, fileConfig.strictConventionalCommits, "strictConventionalCommits", false),
-		bumpRules,
-		noBumpPolicy: noBumpPolicyRaw,
-		createReleasePrs: resolveBooleanOption("create-release-prs", createReleasePrsInput, fileConfig.createReleasePrs, "createReleasePrs", false),
-		releaseBranchPrefix,
-		baseBranch,
-		repo,
-		githubServerUrl,
-		githubToken,
-		changelog,
-		targets
-	};
-}
-
-//#endregion
-//#region src/output.ts
-function setOutput(name, value) {
-	coreClient.setOutput(name, value);
-}
-function writeActionOutputs(payload) {
-	setOutput("changed-targets", JSON.stringify(payload.changedTargets));
-	setOutput("has-changes", String(payload.hasChanges));
-	setOutput("result-json", payload.resultJson);
-	setOutput("release-prs-created", String(payload.releasePrsCreated));
-}
-
-//#endregion
-//#region src/release-branch-safety.ts
-const RESERVED_BRANCH_NAMES = new Set([
-	"main",
-	"master",
-	"develop",
-	"development",
-	"dev",
-	"trunk",
-	"production",
-	"prod",
-	"staging",
-	"stage"
-]);
-const INVALID_REF_PATTERN = /[\s~^:?*[\\]/u;
-const SAFE_SEGMENT_PATTERN = /^[A-Za-z0-9._-]+$/u;
-function securityError(branch, targetLabel, reason) {
-	throw new Error(`Security validation failed for release branch "${branch}" (target "${targetLabel}"): ${reason}. Use an automation-owned release namespace prefix such as "rellu/release".`);
-}
-function normalizePrefix(prefix) {
-	return prefix.trim().replace(/\/+$/u, "");
-}
-function hasReleaseNamespace(prefix) {
-	return prefix.split("/").map((segment) => segment.toLowerCase()).some((segment) => segment.startsWith("release"));
-}
-function validateAutomationOwnedReleaseBranch(options) {
-	const { branch, branchPrefix, targetLabel } = options;
-	const normalizedPrefix = normalizePrefix(branchPrefix);
-	if (!branch.trim()) securityError(branch, targetLabel, "resolved branch is empty");
-	if (!targetLabel.trim()) securityError(branch, targetLabel, "target label is empty");
-	if (!normalizedPrefix) securityError(branch, targetLabel, "release branch prefix is empty");
-	const expectedBranch = `${normalizedPrefix}/${targetLabel}`;
-	if (branch !== expectedBranch) securityError(branch, targetLabel, `resolved branch does not match expected "${expectedBranch}" from configured prefix and target label`);
-	if (!normalizedPrefix.includes("/")) securityError(branch, targetLabel, "prefix must include a namespace segment (for example \"rellu/release\")");
-	if (!hasReleaseNamespace(normalizedPrefix)) securityError(branch, targetLabel, "prefix must include a release namespace segment");
-	if (branch.startsWith("refs/")) securityError(branch, targetLabel, "branch must not include refs/* prefixes");
-	if (branch.includes("//")) securityError(branch, targetLabel, "branch must not contain empty path segments");
-	if (branch.includes("..") || branch.includes("@{")) securityError(branch, targetLabel, "branch contains prohibited git ref sequences");
-	if (INVALID_REF_PATTERN.test(branch)) securityError(branch, targetLabel, "branch contains invalid git ref characters");
-	const segments = branch.split("/");
-	for (const segment of segments) {
-		if (!segment || segment === "." || segment === "..") securityError(branch, targetLabel, "branch contains invalid path segments");
-		if (segment.endsWith(".lock")) securityError(branch, targetLabel, "branch segments cannot end with .lock");
-		if (!SAFE_SEGMENT_PATTERN.test(segment)) securityError(branch, targetLabel, "branch contains unsupported characters");
-	}
-	if (targetLabel.includes("/")) securityError(branch, targetLabel, "target label must map to a single branch segment (no slashes)");
-	if (RESERVED_BRANCH_NAMES.has(branch.toLowerCase())) securityError(branch, targetLabel, "branch resolves to a protected or default branch name");
-}
-
-//#endregion
-//#region src/release-pr.ts
-function getReleaseBranchName(prefix, label) {
-	return `${prefix.replace(/\/+$/u, "")}/${label}`;
-}
-async function findOpenReleasePr(githubClient, repo, branch, base, titlePrefix) {
-	const byBranch = await githubClient.listPulls(repo, {
-		state: "open",
-		head: `${repo.owner}:${branch}`,
-		base,
-		perPage: 100
-	});
-	if (Array.isArray(byBranch) && byBranch.length > 0) return byBranch[0] ?? null;
-	return (await githubClient.listPulls(repo, {
-		state: "open",
-		base,
-		perPage: 100
-	})).find((pull) => String(pull.headRef ?? "") === branch || String(pull.title ?? "").startsWith(titlePrefix)) ?? null;
-}
-async function regenerateReleaseBranch(baseBranch, branch, releaseBranchPrefix, target, logger) {
-	await runCommand("git", [
-		"fetch",
-		"origin",
-		baseBranch
-	]);
-	await runCommand("git", [
-		"checkout",
-		"-B",
-		branch,
-		`origin/${baseBranch}`
-	]);
-	await runCommand("git", [
-		"config",
-		"user.name",
-		"rellu[bot]"
-	]);
-	await runCommand("git", [
-		"config",
-		"user.email",
-		"rellu-bot@users.noreply.github.com"
-	]);
-	await writeManifestVersion(target.versionSource.file, target.versionSource.type, target.nextVersion, { targetLabel: target.label });
-	await runCommand("git", ["add", target.versionSource.file]);
-	if (!(await runCommand("git", [
-		"status",
-		"--porcelain",
-		"--",
-		target.versionSource.file
-	])).stdout.trim()) {
-		logger.info(`No version file changes for ${target.label}; branch regeneration skipped commit.`);
-		return;
-	}
-	await runCommand("git", [
-		"commit",
-		"-m",
-		`release(${target.label}): v${target.nextVersion}`,
-		"--no-verify"
-	]);
-	validateAutomationOwnedReleaseBranch({
-		branch,
-		branchPrefix: releaseBranchPrefix,
-		targetLabel: target.label
-	});
-	await runCommand("git", [
-		"push",
-		"origin",
-		`+${branch}`
-	]);
-}
-async function createOrUpdateReleasePr(githubClient, target, settings, repo, logger) {
-	const branch = getReleaseBranchName(settings.releaseBranchPrefix, target.label);
-	const title = `release(${target.label}): v${target.nextVersion}`;
-	const body = target.changelog.markdown || "_No changelog entries._";
-	await regenerateReleaseBranch(settings.baseBranch, branch, settings.releaseBranchPrefix, target, logger);
-	const existing = await findOpenReleasePr(githubClient, repo, branch, settings.baseBranch, `release(${target.label})`);
-	if (existing) {
-		const updated = await githubClient.updatePull(repo, existing.number, {
-			title,
-			body
-		});
-		return {
-			enabled: true,
-			branch,
-			title,
-			number: updated.number,
-			url: updated.htmlUrl
-		};
-	}
-	const created = await githubClient.createPull(repo, {
-		title,
-		head: branch,
-		base: settings.baseBranch,
-		body
-	});
-	return {
-		enabled: true,
-		branch,
-		title,
-		number: created.number,
-		url: created.htmlUrl
-	};
-}
-function resolveTargetReleasePrSettings(config, targetLabel) {
-	const targetSettings = config.targets?.find((target) => target.label === targetLabel)?.releasePr;
-	return {
-		enabled: targetSettings?.enabled ?? true,
-		releaseBranchPrefix: targetSettings?.branchPrefix ?? config.releaseBranchPrefix,
-		baseBranch: targetSettings?.baseBranch ?? config.baseBranch
-	};
-}
-async function maybeManageReleasePrs(config, results, logger) {
-	if (!config.createReleasePrs) return {
-		updatedResults: results,
-		anyCreatedOrUpdated: false
-	};
-	const repo = parseRepoRef(config.repo);
-	if (!repo) throw new Error(`Invalid repository slug "${config.repo}". Expected format "owner/name" with exactly two non-empty segments.`);
-	if (!config.githubToken) {
-		logger.warn("Release PR mode enabled but GITHUB_TOKEN is missing. Skipping PR automation.");
-		return {
-			updatedResults: results,
-			anyCreatedOrUpdated: false
-		};
-	}
-	const githubClient = createGitHubClient(config.githubToken, config.githubServerUrl);
+//#region src/action/run.ts
+/** main entry point for the action */
+const run = async () => {
+	const config = configuration.load();
+	log.info("Loaded configuration:", config);
+	const analysis = await analyze(config);
+	log.info(`Analysis complete. Range=${analysis.range} commits=${analysis.commitCount}`);
+	const prOutcomes = [];
 	let anyCreatedOrUpdated = false;
-	const updatedResults = [];
-	for (const result of results) {
-		const targetReleaseSettings = resolveTargetReleasePrSettings(config, result.label);
-		if (!targetReleaseSettings.enabled) {
-			logger.info(`Skipping release PR for ${result.label}: target releasePr.enabled=false.`);
-			updatedResults.push({
-				...result,
-				releasePr: { enabled: false }
-			});
-			continue;
-		}
-		if (!(result.changed && result.nextVersion !== result.currentVersion && !result.skipRelease)) {
-			if (result.changed) logger.warn(`Skipping release PR for ${result.label}: non-releasable target under current policy.`);
-			updatedResults.push({
-				...result,
-				releasePr: { enabled: false }
-			});
-			continue;
-		}
-		logger.info(`Managing release PR for ${result.label} on branch ${getReleaseBranchName(targetReleaseSettings.releaseBranchPrefix, result.label)}`);
-		try {
-			const releasePr = await createOrUpdateReleasePr(githubClient, result, targetReleaseSettings, repo, logger);
-			updatedResults.push({
-				...result,
-				releasePr
-			});
-			anyCreatedOrUpdated = true;
-		} catch (error) {
-			throw new Error(`Failed managing release PR for target "${result.label}": ${String(error)}`);
-		}
-	}
-	return {
-		updatedResults,
-		anyCreatedOrUpdated
-	};
-}
-
-//#endregion
-//#region src/utils/log.ts
-const defaultLogger = {
-	info(message) {
-		coreClient.info(message);
-	},
-	warn(message) {
-		coreClient.warn(message);
-	},
-	error(message) {
-		coreClient.error(message);
+	if (config.inputs.createReleasePr) for (const target of analysis.results) try {
+		const result = await maybeManageReleasePr(config, target);
+		anyCreatedOrUpdated = anyCreatedOrUpdated || result.releasePr?.enabled === true;
+		prOutcomes.push(result);
+	} catch (error) {
+		log.err(`Failed to manage release PR for target ${target.label}:`, error);
 	}
 };
 
 //#endregion
 //#region src/index.ts
-async function run() {
-	const config = loadConfig();
-	defaultLogger.info(`Loaded ${config.targets.length} configured targets.`);
-	const analysis = await analyzeRepository(config, defaultLogger);
-	defaultLogger.info(`Analysis complete. Range=${analysis.range} commits=${analysis.commitCount}`);
-	const releaseOutcome = await maybeManageReleasePrs(config, analysis.results, defaultLogger);
-	const results = releaseOutcome.updatedResults;
-	const changedTargets = results.filter((result) => result.changed).map((result) => result.label);
-	const resultEnvelope = {
-		range: analysis.range,
-		commitCount: analysis.commitCount,
-		results
-	};
-	const resultJson = JSON.stringify(resultEnvelope, null, 2);
-	writeActionOutputs({
-		changedTargets,
-		hasChanges: changedTargets.length > 0,
-		resultJson,
-		releasePrsCreated: releaseOutcome.anyCreatedOrUpdated
-	});
-	defaultLogger.info(`Changed targets: ${changedTargets.length > 0 ? changedTargets.join(", ") : "(none)"}`);
+try {
+	await run();
+} catch (e) {
+	setFailed(e instanceof Error ? e : String(e));
+	console.error(e);
 }
-run().catch((error) => {
-	const message = error instanceof Error ? error.stack ?? error.message : String(error);
-	coreClient.setFailed(message);
-});
 
 //#endregion
 export {  };

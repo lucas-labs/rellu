@@ -1,0 +1,30 @@
+{
+  "action": "closed",
+  "number": 1,
+  "pull_request": {
+    "number": 1,
+    "title": "feat: add new feature",
+    "head": {
+      "ref": "feat/my-feature",
+      "sha": "abc1234567890000000000000000000000000000"
+    },
+    "base": {
+      "ref": "main",
+      "sha": "def1234567890000000000000000000000000000"
+    },
+    "body": "This PR adds a new feature.",
+    "user": {
+      "login": "local-dev"
+    },
+    "merged": true,
+    "merge_commit_sha": "fff1234567890000000000000000000000000000"
+  },
+  "repository": {
+    "full_name": "rellu/rellu",
+    "default_branch": "main",
+    "clone_url": "https://github.com/rellu/rellu.git"
+  },
+  "sender": {
+    "login": "local-dev"
+  }
+}

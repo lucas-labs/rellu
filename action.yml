@@ -3,59 +3,78 @@ description: "Monorepo release analysis action with per-target changelogs, semve
 author: "rellu"
 
 inputs:
-  targets:
-    description: "JSON array of target configs (label, paths, version, optional releasePr overrides)"
+  github-token:
     required: false
+    default: ${{ github.token }}
+    description: |
+      GitHub token for creating comments. Defaults to the automatic GITHUB_TOKEN.
+
   config-file:
-    description: "Optional JSON configuration file path"
     required: false
+    default: ".github/rellu.json"
+    description: | 
+      Path to the configuration file within the repository (default: .github/rellu.json)
+
   from-ref:
-    description: "Start reference for git range"
     required: false
-  range-strategy:
-    description: "Range resolution strategy: explicit|latest-tag|latest-tag-with-prefix"
-    required: false
-    default: "explicit"
+    description: |
+      The git ref to compare against when determining what changes to include.
+
   to-ref:
-    description: "End reference for git range"
     required: false
     default: "HEAD"
-  strict-conventional-commits:
-    description: "Fail when relevant commits are not valid conventional commits"
+    description: |
+      The git ref to compare against when determining what changes to include (default: HEAD).
+
+  create-release-prs:
     required: false
     default: "false"
-  bump-rules:
-    description: "JSON object mapping conventional commit types to bump levels"
-    required: false
-  changelog-category-map:
-    description: "JSON object mapping conventional commit types to changelog section names"
-    required: false
-  changelog-section-order:
-    description: "JSON array defining preferred changelog section order"
-    required: false
+    description: | 
+      Globally enable or disable creating/updating the release pull request for all targets. Explicit releasePr configuration
+      for individual targets will override this global setting.
+
   no-bump-policy:
-    description: "Behavior for changed targets with no bump-worthy commits: skip|keep|patch"
     required: false
     default: "skip"
-  create-release-prs:
-    description: "Enable release branch + release PR automation globally (targets may opt out via target.releasePr.enabled=false)"
+    description: |
+      Behavior for changed targets with no bump-worthy commits: skip|keep|patch
+
+  range-strategy:
     required: false
-    default: "false"
+    default: "latest-tag"
+    description: |
+        The strategy to determine the range of commits to analyze when the fromRef input is not provided.
+        "explicit" means both fromRef and toRef must be provided.
+        "latest-tag" means fromRef will be determined by finding the latest git tag in the repository, regardless of prefix.
+        "latest-tag-with-prefix" means fromRef will be determined by finding the latest git tag that starts with the specified tagPrefix for each target.
+
   release-branch-prefix:
-    description: "Prefix for release branches"
     required: false
     default: "rellu/release"
-  base-branch:
-    description: "Base branch for release PRs"
+    description: |
+      A global prefix for the release PR branch name (e.g. "rellu/"). Individual target configuration will override this if specified.
+
+  strict-conventional-commits:
     required: false
-    default: "main"
+    default: "false"
+    description: |
+      Fail when relevant commits are not valid conventional commits
+  
+  base-branch:
+    required: false
+    default: ${{ github.event.repository.default_branch }}
+    description: |
+      The base branch to use for the release PR (defaults to the default branch of the repository). Individual target configuration will override this if specified.
+
   repo:
     description: "GitHub repository slug owner/repo (defaults to GITHUB_REPOSITORY)"
+    default: "${{ github.repository }}"
     required: false
-  github-server-url:
-    description: "GitHub API base URL"
+
+  release-commit-message-pattern:
+    description: "Pattern for release commit messages, with placeholders {target} and {version}"
+    default: "release({target}): 🔖 v{version}"
     required: false
-    default: "https://api.github.com"
 
 outputs:
   changed-targets:

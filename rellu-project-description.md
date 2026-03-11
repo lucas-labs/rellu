@@ -223,7 +223,7 @@ Optional additional sections:
 
 - Performance
 - Refactoring
-- Build / CI
+- CI
 - Chores
 - Tests
 - Other
