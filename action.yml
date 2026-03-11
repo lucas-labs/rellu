@@ -1,6 +1,12 @@
-name: "Rellu"
-description: "Monorepo release analysis action with per-target changelogs, semver, and optional release PR automation."
-author: "rellu"
+name: Rellu Release Helper - Lucode
+description: -|
+  Monorepo release analysis action with per-target changelogs, semver, and optional
+  release PR automation.
+author: lucas-labs
+
+branding:
+  icon: tag
+  color: blue
 
 inputs:
   github-token:
