@@ -1,7 +1,5 @@
 name: Rellu Release Helper - Lucode
-description: -|
-  Monorepo release analysis action with per-target changelogs, semver, and optional
-  release PR automation.
+description: Monorepo release analysis action with per-target changelogs, semver, and optional release PR automation.
 author: lucas-labs
 
 branding:
