@@ -27518,7 +27518,7 @@ const bumpStable = (parsed, bump) => {
 	}
 };
 const next = (currentVersion, bump, prereleaseTag) => {
-	if (typeof currentVersion !== "string") return format(currentVersion);
+	if (typeof currentVersion !== "string") currentVersion = format(currentVersion);
 	const parsed = parse(currentVersion);
 	switch (bump) {
 		case "none": return currentVersion.trim();

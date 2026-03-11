@@ -8,6 +8,19 @@ describe('next', () => {
     expect(next('1.2.3', 'minor')).toBe('1.3.0');
     expect(next('1.2.3', 'patch')).toBe('1.2.4');
     expect(next('1.2.3', 'none')).toBe('1.2.3');
+
+    // edge case: from 0.0.0
+    expect(next('0.0.0', 'major')).toBe('1.0.0');
+  });
+
+  test('applies semantic bump rules for stable releases from ParsedSemver', () => {
+    expect(next({ major: 1, minor: 2, patch: 3 }, 'major')).toBe('2.0.0');
+    expect(next({ major: 1, minor: 2, patch: 3 }, 'minor')).toBe('1.3.0');
+    expect(next({ major: 1, minor: 2, patch: 3 }, 'patch')).toBe('1.2.4');
+    expect(next({ major: 1, minor: 2, patch: 3 }, 'none')).toBe('1.2.3');
+
+    // edge case: from 0.0.0
+    expect(next({ major: 0, minor: 0, patch: 0 }, 'major')).toBe('1.0.0');
   });
 
   test('starts prereleases from a stable version when bump includes a tag', () => {
@@ -16,13 +29,34 @@ describe('next', () => {
     expect(next('1.2.3', 'patch', 'alpha')).toBe('1.2.4-alpha.0');
   });
 
+  test('starts prereleases from a stable version when bump includes a tag from ParsedSemver', () => {
+    expect(next({ major: 1, minor: 2, patch: 3 }, 'major', 'beta')).toBe('2.0.0-beta.0');
+    expect(next({ major: 1, minor: 2, patch: 3 }, 'minor', 'beta')).toBe('1.3.0-beta.0');
+    expect(next({ major: 1, minor: 2, patch: 3 }, 'patch', 'alpha')).toBe('1.2.4-alpha.0');
+  });
+
   test('release finalizes a prerelease into a stable version', () => {
     expect(next('1.3.0-beta.4', 'release')).toBe('1.3.0');
     expect(next('2.0.0-rc.0', 'release')).toBe('2.0.0');
   });
 
+  test('release finalizes a prerelease into a stable version from ParsedSemver', () => {
+    expect(
+      next({ major: 1, minor: 3, patch: 0, prerelease: { tag: 'beta', num: 4 } }, 'release'),
+    ).toBe('1.3.0');
+    expect(
+      next({ major: 2, minor: 0, patch: 0, prerelease: { tag: 'rc', num: 0 } }, 'release'),
+    ).toBe('2.0.0');
+  });
+
   test('release fails for stable versions', () => {
     expect(() => next('1.3.0', 'release')).toThrow(/not a prerelease/u);
+  });
+
+  test('release fails for stable versions from ParsedSemver', () => {
+    expect(() => next({ major: 1, minor: 3, patch: 0 }, 'release')).toThrow(
+      /not a prerelease/u,
+    );
   });
 
   test('fails when trying to use pre on a stable version', () => {
@@ -34,9 +68,27 @@ describe('next', () => {
     );
   });
 
+  test('fails when trying to use pre on a stable version from ParsedSemver', () => {
+    expect(() => next({ major: 1, minor: 2, patch: 3 }, 'pre')).toThrow(
+      /Cannot increment prerelease for stable version/u,
+    );
+    expect(() => next({ major: 1, minor: 2, patch: 3 }, 'pre', 'beta')).toThrow(
+      /Cannot increment prerelease for stable version/u,
+    );
+  });
+
   test('increments current prerelease when bump is pre and no tag is passed', () => {
     expect(next('1.3.0-beta.0', 'pre')).toBe('1.3.0-beta.1');
     expect(next('1.3.0-beta.12', 'pre')).toBe('1.3.0-beta.13');
+  });
+
+  test('increments current prerelease when bump is pre and no tag is passed from ParsedSemver', () => {
+    expect(
+      next({ major: 1, minor: 3, patch: 0, prerelease: { tag: 'beta', num: 0 } }, 'pre'),
+    ).toBe('1.3.0-beta.1');
+    expect(
+      next({ major: 1, minor: 3, patch: 0, prerelease: { tag: 'beta', num: 12 } }, 'pre'),
+    ).toBe('1.3.0-beta.13');
   });
 
   test('increments current prerelease when bump is pre and same tag is passed', () => {
@@ -44,10 +96,47 @@ describe('next', () => {
     expect(next('1.3.0-alpha.9', 'pre', 'alpha')).toBe('1.3.0-alpha.10');
   });
 
+  test('increments current prerelease when bump is pre and same tag is passed from ParsedSemver', () => {
+    expect(
+      next(
+        { major: 1, minor: 3, patch: 0, prerelease: { tag: 'beta', num: 0 } },
+        'pre',
+        'beta',
+      ),
+    ).toBe('1.3.0-beta.1');
+    expect(
+      next(
+        { major: 1, minor: 3, patch: 0, prerelease: { tag: 'alpha', num: 9 } },
+        'pre',
+        'alpha',
+      ),
+    ).toBe('1.3.0-alpha.10');
+  });
+
   test('switches prerelease channel and resets counter when bump is pre and tag changes', () => {
     expect(next('1.3.0-beta.0', 'pre', 'alpha')).toBe('1.3.0-alpha.0');
     expect(next('1.3.0-alpha.12', 'pre', 'beta')).toBe('1.3.0-beta.0');
     expect(next('2.0.0-rc.7', 'pre', 'gold')).toBe('2.0.0-gold.0');
+  });
+
+  test('switches prerelease channel and resets counter when bump is pre and tag changes from ParsedSemver', () => {
+    expect(
+      next(
+        { major: 1, minor: 3, patch: 0, prerelease: { tag: 'beta', num: 0 } },
+        'pre',
+        'alpha',
+      ),
+    ).toBe('1.3.0-alpha.0');
+    expect(
+      next(
+        { major: 1, minor: 3, patch: 0, prerelease: { tag: 'alpha', num: 12 } },
+        'pre',
+        'beta',
+      ),
+    ).toBe('1.3.0-beta.0');
+    expect(
+      next({ major: 2, minor: 0, patch: 0, prerelease: { tag: 'rc', num: 7 } }, 'pre', 'gold'),
+    ).toBe('2.0.0-gold.0');
   });
 
   test('creates the next release line even when current version is already prerelease', () => {
@@ -60,8 +149,48 @@ describe('next', () => {
     expect(next('1.3.0-beta.4', 'patch', 'alpha')).toBe('1.3.1-alpha.0');
   });
 
+  test('creates the next release line even when current version is already prerelease from ParsedSemver', () => {
+    expect(
+      next({ major: 1, minor: 3, patch: 0, prerelease: { tag: 'beta', num: 4 } }, 'major'),
+    ).toBe('2.0.0');
+    expect(
+      next({ major: 1, minor: 3, patch: 0, prerelease: { tag: 'beta', num: 4 } }, 'minor'),
+    ).toBe('1.4.0');
+    expect(
+      next({ major: 1, minor: 3, patch: 0, prerelease: { tag: 'beta', num: 4 } }, 'patch'),
+    ).toBe('1.3.1');
+
+    expect(
+      next(
+        { major: 1, minor: 3, patch: 0, prerelease: { tag: 'beta', num: 4 } },
+        'major',
+        'alpha',
+      ),
+    ).toBe('2.0.0-alpha.0');
+    expect(
+      next(
+        { major: 1, minor: 3, patch: 0, prerelease: { tag: 'beta', num: 4 } },
+        'minor',
+        'alpha',
+      ),
+    ).toBe('1.4.0-alpha.0');
+    expect(
+      next(
+        { major: 1, minor: 3, patch: 0, prerelease: { tag: 'beta', num: 4 } },
+        'patch',
+        'alpha',
+      ),
+    ).toBe('1.3.1-alpha.0');
+  });
+
   test('none is a strict no-op even for prereleases', () => {
     expect(next('1.3.0-beta.4', 'none')).toBe('1.3.0-beta.4');
+  });
+
+  test('none is a strict no-op even for prereleases from ParsedSemver', () => {
+    expect(
+      next({ major: 1, minor: 3, patch: 0, prerelease: { tag: 'beta', num: 4 } }, 'none'),
+    ).toBe('1.3.0-beta.4');
   });
 });
 

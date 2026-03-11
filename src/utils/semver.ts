@@ -1,4 +1,4 @@
-interface ParsedSemver {
+export interface ParsedSemver {
   major: number;
   minor: number;
   patch: number;
@@ -66,7 +66,7 @@ export const next = (
   prereleaseTag?: string,
 ): string => {
   if (typeof currentVersion !== 'string') {
-    return format(currentVersion);
+    currentVersion = format(currentVersion);
   }
   const parsed = parse(currentVersion);
 

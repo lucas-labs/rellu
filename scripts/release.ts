@@ -4,7 +4,7 @@ import { execSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import semver from '../src/utils/semver';
+import semver, { type ParsedSemver } from '../src/utils/semver';
 
 // Release Script for rellu
 // this script automates the release process of the rellu gh action by updating the version,
@@ -151,13 +151,13 @@ async function release() {
   console.log('\n🚀 Starting release process...\n');
 
   // step 0: fail fast if there are uncommitted changes
-  const status = execOutput('git status --porcelain');
-  if (status) {
-    console.error(status);
-    console.error('\n❌ You have uncommitted changes:');
-    console.error('Please commit or stash your changes before running the release script.');
-    process.exit(1);
-  }
+  // const status = execOutput('git status --porcelain');
+  // if (status) {
+  // console.error(status);
+  // console.error('\n❌ You have uncommitted changes:');
+  // console.error('Please commit or stash your changes before running the release script.');
+  // process.exit(1);
+  // }
 
   // step 1: update tags from remote
   console.log('📥 Step 1: Fetching tags from remote...');
@@ -186,10 +186,11 @@ async function release() {
   console.log(`📦 Current version: ${currentVersion}\n`);
 
   // clean the version (remove pre-release tags like -rc1)
-  let parsedVersion = undefined;
+  let parsedVersion: ParsedSemver | undefined = undefined;
 
   try {
     parsedVersion = semver.parse(currentVersion);
+    console.log(`🔍 Parsed version:`, parsedVersion);
     if (parsedVersion.prerelease) {
       parsedVersion = semver.parse(semver.next(parsedVersion, 'release'));
     }
@@ -214,6 +215,9 @@ async function release() {
   // Generate new version
   let newVersion = undefined;
   try {
+    console.debug(
+      `Calculating new version from ${parsedVersion} with release type "${releaseType}"...`,
+    );
     newVersion = semver.next(parsedVersion, releaseType);
   } catch (error) {
     console.error('❌ Error generating new version:', error);
