@@ -28,7 +28,12 @@ export const defaultBumpRules: Record<string, BumpLevel> = {
 };
 
 export const ReleasePrConfigSchema = z.object({
-  enabled: z.boolean().describe('Whether to create/update a live release pull request'),
+  enabled: z
+    .boolean()
+    .optional()
+    .describe(
+      'Whether to create/update a live release pull request. If omitted, the target inherits the global create-release-pr setting.',
+    ),
   branchPrefix: z
     .string()
     .optional()
@@ -72,8 +77,8 @@ export const TargetSchema = z.object({
       'An optional prefix to find tags that represent versions for this target (e.g. "foo@v" to match tags like "foo@v1.2.3")',
     ),
   releasePr: ReleasePrConfigSchema.describe(
-    'Configuration for the release pull request to create/update for this target',
-  ).default({ enabled: false }),
+    'Optional per-target overrides for release pull request behavior',
+  ).optional(),
 });
 export type Target = z.infer<typeof TargetSchema>;
 
@@ -129,7 +134,7 @@ export const RelluActionInputsSchema = z
     githubToken: z.string().optional(),
     fromRef: z.string().optional(),
     toRef: z.string().optional().default('HEAD'),
-    rangeStrategy: z.enum(rangeStrategy).default('explicit'),
+    rangeStrategy: z.enum(rangeStrategy).default('latest-tag'),
     strictConventionalCommits: z.boolean().default(false),
     noBumpPolicy: z.enum(noBumpPolicies).default('skip'),
     createReleasePr: z.boolean().default(false),

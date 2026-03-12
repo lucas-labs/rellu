@@ -69,7 +69,7 @@ Key constraints:
 
 ## Migration Plan
 
-1. Implement analysis-only mode first (`create-release-prs=false`) and validate outputs in CI.
+1. Implement analysis-only mode first (`create-release-pr=false`) and validate outputs in CI.
 2. Add release PR mode behind explicit opt-in input and test in a non-production repository.
 3. Roll out to production workflows with branch protections allowing automation on release branches.
 4. Document operational playbooks for no-bump policies, strict-mode failures, and shallow-clone remediation.

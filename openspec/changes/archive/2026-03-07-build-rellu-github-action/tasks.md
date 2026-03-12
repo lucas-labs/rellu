@@ -27,7 +27,7 @@
 
 ## 5. Release PR Automation
 
-- [x] 5.1 Implement release PR mode gating so branch/PR mutations occur only when `create-release-prs=true`.
+- [x] 5.1 Implement release PR mode gating so branch/PR mutations occur only when `create-release-pr=true`.
 - [x] 5.2 Implement deterministic release branch naming and open PR discovery by branch/title markers.
 - [x] 5.3 Implement branch regeneration workflow: reset from base, apply version updates, create one release commit, force-push.
 - [x] 5.4 Implement PR create/update flow to keep title/body synchronized with computed version and generated changelog.

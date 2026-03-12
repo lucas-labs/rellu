@@ -50,3 +50,9 @@ export interface TargetResult {
   skipRelease: boolean;
   releasePr?: ReleasePrInfo;
 }
+
+export interface AnalysisResultEnvelope {
+  range: string;
+  commitCount: number;
+  results: TargetResult[];
+}

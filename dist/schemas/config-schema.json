@@ -47,14 +47,11 @@
             "type": "string"
           },
           "releasePr": {
-            "default": {
-              "enabled": false
-            },
             "type": "object",
             "properties": {
               "enabled": {
-                "type": "boolean",
-                "description": "Whether to create/update a live release pull request"
+                "description": "Whether to create/update a live release pull request. If omitted, the target inherits the global create-release-pr setting.",
+                "type": "boolean"
               },
               "branchPrefix": {
                 "description": "An optional prefix for the release PR branch name (e.g. \"rellu/app1/\")",
@@ -65,10 +62,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "enabled"
-            ],
-            "description": "Configuration for the release pull request to create/update for this target"
+            "description": "Optional per-target overrides for release pull request behavior"
           }
         },
         "required": [

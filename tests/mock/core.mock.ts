@@ -11,10 +11,6 @@ const BASE_TARGET = {
     file: 'apps/app1/package.json',
     type: 'node-package-json',
   },
-  releasePr: {
-    enabled: false,
-    branchPrefix: 'rellu/release/',
-  },
 } as const;
 
 export async function writeConfigFile(

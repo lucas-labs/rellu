@@ -11,7 +11,7 @@ The repository README MUST explain the action purpose, prerequisites, and a mini
 The README MUST document every input defined in `action.yml`, including input key, required status, default value, and behavior notes.
 
 #### Scenario: User validates an input before adding it to workflow
-- **WHEN** a user looks up an input such as `range-strategy` or `create-release-prs`
+- **WHEN** a user looks up an input such as `range-strategy` or `create-release-pr`
 - **THEN** the README lists that input with matching default and semantic behavior from `action.yml`
 
 ### Requirement: README SHALL document action outputs and expected usage

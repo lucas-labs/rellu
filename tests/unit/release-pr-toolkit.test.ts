@@ -526,6 +526,100 @@ test('release PR management honors per-target releasePr.enabled opt-out while gl
   }
 });
 
+test('release PR management preserves global-only behavior when target releasePr is omitted', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'rellu-release-pr-global-only-'));
+  const manifestPath = path.join(tempDir, 'package.json');
+  const restoreWorkspace = setWorkspaceRoot(tempDir);
+  await fs.writeFile(
+    manifestPath,
+    JSON.stringify({ name: 'app-1', version: '1.2.3' }, null, 2),
+    'utf8',
+  );
+
+  try {
+    const queryKey = 'release-pr-global-only-target-default';
+    await mockLogger();
+    await mockIo();
+
+    const execMock = mock(async (_command: string, args: string[], _options: any) => {
+      if (args[0] === 'status') {
+        return { stdout: ` M ${manifestPath}\n`, stderr: '', code: 0 };
+      }
+      return { stdout: '', stderr: '', code: 0 };
+    });
+
+    const listPullMock = octokitMocks.rest.pulls.list();
+    const createPullMock = octokitMocks.rest.pulls.create();
+    const updatePullMock = octokitMocks.rest.pulls.update();
+
+    const config = await loadConfig({
+      queryKey,
+      inputs: {
+        'github-token': `gh-fake-token-${queryKey}`,
+      },
+      config: {
+        targets: [
+          {
+            label: 'app-1',
+            paths: ['apps/app1/**/*'],
+            version: {
+              file: manifestPath,
+              type: 'node-package-json',
+            },
+          },
+        ],
+      },
+    });
+
+    await mock.module('../../src/utils/cmd.ts', () => ({
+      default: {
+        exec: execMock,
+      },
+    }));
+
+    await mock.module('@actions/github', () => ({
+      getOctokit: () => ({
+        rest: {
+          pulls: {
+            list: listPullMock,
+            create: createPullMock,
+            update: updatePullMock,
+          },
+        },
+      }),
+    }));
+
+    const { maybeManageReleasePr } = await import(
+      `../../src/action/release/index.ts?${queryKey}`
+    );
+
+    const outcome = await maybeManageReleasePr(config, {
+      label: 'app-1',
+      changed: true,
+      matchedFiles: [manifestPath],
+      commitCount: 1,
+      currentVersion: '1.2.3',
+      nextVersion: '1.2.4',
+      bump: 'patch',
+      commits: [],
+      changelog: { markdown: '## Bug Fixes\n- fix' },
+      versionSource: { file: manifestPath, type: 'node-package-json' },
+      skipRelease: false,
+    });
+
+    expect(outcome.releasePr?.enabled).toBe(true);
+    expect(outcome.releasePr?.action).toBe('updated');
+    expect(outcome.releasePr?.branch).toBe('rellu/release/app-1');
+    expect(listPullMock).toHaveBeenCalledTimes(1);
+    expect(createPullMock).toHaveBeenCalledTimes(0);
+    expect(updatePullMock).toHaveBeenCalledTimes(1);
+  } finally {
+    mock.restore();
+    restoreWorkspace();
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test('release PR management uses per-target branchPrefix and baseBranch overrides', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'rellu-release-pr-override-'));
   const manifestPath = path.join(tempDir, 'package.json');

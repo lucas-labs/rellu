@@ -4,11 +4,15 @@
 TBD - created by archiving change build-rellu-github-action. Update Purpose after archive.
 ## Requirements
 ### Requirement: Action outputs SHALL expose top-level release analysis state
-The action SHALL emit `changed-targets`, `has-changes`, and `result-json` outputs for every run, and SHALL emit `release-prs-created` when release PR mode is enabled. `result-json` SHALL contain analysis-level metadata (`range`, `commitCount`) and target results.
+The action SHALL emit `count-processed`, `pr-updated`, `pr-created`, `changed-targets`, `has-changes`, and `result-json` outputs for every run. `result-json` SHALL contain analysis-level metadata (`range`, `commitCount`) and target results.
 
 #### Scenario: Outputs are produced for changed targets
 - **WHEN** two targets are detected as changed
-- **THEN** `changed-targets` contains both labels, `has-changes` is `true`, and `result-json` contains analysis-level metadata plus both target result objects
+- **THEN** `count-processed` reports the number of emitted target results, `changed-targets` contains both labels, `has-changes` is `true`, and `result-json` contains analysis-level metadata plus both target result objects
+
+#### Scenario: Release PR counters reflect processed outcomes
+- **WHEN** one processed target creates a release PR and one processed target updates an existing release PR
+- **THEN** `pr-created` is `1` and `pr-updated` is `1`
 
 #### Scenario: Outputs include analysis range context
 - **WHEN** analysis runs over a resolved git range
@@ -24,6 +28,17 @@ The action SHALL emit `changed-targets`, `has-changes`, and `result-json` output
 #### Scenario: Analysis envelope keys are present
 - **WHEN** the action emits `result-json`
 - **THEN** the JSON object includes `range`, `commitCount`, and `results`
+
+### Requirement: Per-target outputs SHALL expose serialized target result details
+For each emitted target result, the action MUST emit label-prefixed outputs that mirror target analysis fields and release PR metadata when present.
+
+#### Scenario: Target result fields are emitted as label-prefixed outputs
+- **WHEN** the action emits a target result for `app-1`
+- **THEN** outputs such as `app-1-label`, `app-1-changed`, `app-1-matched-files`, `app-1-commit-count`, `app-1-current-version`, `app-1-next-version`, `app-1-bump`, `app-1-commits`, `app-1-changelog`, `app-1-version-source-file`, and `app-1-skip-release` are emitted
+
+#### Scenario: Release PR metadata is emitted only when available
+- **WHEN** a target result includes release PR metadata
+- **THEN** outputs such as `app-1-pr-enabled`, `app-1-pr-action`, `app-1-pr-branch`, `app-1-pr-title`, `app-1-pr-number`, and `app-1-pr-url` are emitted for that target
 
 ### Requirement: Changelog rendering SHALL group commits by category
 The system SHALL render markdown changelog sections using category mappings based on parsed conventional commit types. Category mapping and section ordering SHALL be user-configurable, and the system SHALL apply a sensible default mapping/order when no custom configuration is provided.
@@ -76,4 +91,3 @@ The system MUST escape markdown-sensitive and mention-triggering characters in u
 #### Scenario: Contributor display contains mention text
 - **WHEN** contributor display text contains raw `@` mention patterns from commit-derived data
 - **THEN** rendered changelog output escapes the mention-sensitive content to avoid unintended notifications
-

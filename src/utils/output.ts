@@ -1,56 +1,69 @@
-import type { TargetResult } from '@/action/types';
-import { setOutput, summary as actionSummary } from '@actions/core';
+import type { AnalysisResultEnvelope, TargetResult } from '@/action/types';
+import * as core from '@actions/core';
 
-export const setOutputs = (prOutcomes: TargetResult[]) => {
-  setOutput('count_processed', prOutcomes.length);
-  setOutput(
-    'pr_updated',
-    prOutcomes.reduce(
+export const buildActionOutputs = (analysis: AnalysisResultEnvelope) => {
+  const { results } = analysis;
+
+  return {
+    countProcessed: results.length,
+    prUpdated: results.reduce(
       (count, outcome) => count + (outcome.releasePr?.action === 'updated' ? 1 : 0),
       0,
     ),
-  );
-  setOutput(
-    'pr_created',
-    prOutcomes.reduce(
+    prCreated: results.reduce(
       (count, outcome) => count + (outcome.releasePr?.action === 'created' ? 1 : 0),
       0,
     ),
-  );
+    changedTargets: JSON.stringify(results.filter((r) => r.changed).map((r) => r.label)),
+    hasChanges: results.some((r) => r.changed),
+    resultJson: JSON.stringify(analysis),
+  };
+};
 
-  prOutcomes.forEach((outcome, index) => {
+export const setOutputs = (analysis: AnalysisResultEnvelope) => {
+  const { results } = analysis;
+  const outputs = buildActionOutputs(analysis);
+
+  core.setOutput('count-processed', outputs.countProcessed);
+  core.setOutput('pr-updated', outputs.prUpdated);
+  core.setOutput('pr-created', outputs.prCreated);
+  core.setOutput('changed-targets', outputs.changedTargets);
+  core.setOutput('has-changes', outputs.hasChanges);
+  core.setOutput('result-json', outputs.resultJson);
+
+  results.forEach((outcome) => {
     const prefix = `${outcome.label}`;
 
-    setOutput(`${prefix}_label`, outcome.label);
-    setOutput(`${prefix}_changed`, outcome.changed);
-    setOutput(`${prefix}_matched_files`, JSON.stringify(outcome.matchedFiles));
-    setOutput(`${prefix}_commit_count`, outcome.commitCount);
-    setOutput(`${prefix}_current_version`, outcome.currentVersion);
-    setOutput(`${prefix}_next_version`, outcome.nextVersion);
-    setOutput(`${prefix}_bump`, outcome.bump);
-    setOutput(
-      `${prefix}_commits`,
+    core.setOutput(`${prefix}-label`, outcome.label);
+    core.setOutput(`${prefix}-changed`, outcome.changed);
+    core.setOutput(`${prefix}-matched-files`, JSON.stringify(outcome.matchedFiles));
+    core.setOutput(`${prefix}-commit-count`, outcome.commitCount);
+    core.setOutput(`${prefix}-current-version`, outcome.currentVersion);
+    core.setOutput(`${prefix}-next-version`, outcome.nextVersion);
+    core.setOutput(`${prefix}-bump`, outcome.bump);
+    core.setOutput(
+      `${prefix}-commits`,
       JSON.stringify(outcome.commits.map((commit) => commit.sha)),
     );
-    setOutput(`${prefix}_changelog`, outcome.changelog.markdown);
-    setOutput(`${prefix}_version_source_file`, outcome.versionSource.file);
-    setOutput(`${prefix}_skip_release`, outcome.skipRelease);
+    core.setOutput(`${prefix}-changelog`, outcome.changelog.markdown);
+    core.setOutput(`${prefix}-version-source-file`, outcome.versionSource.file);
+    core.setOutput(`${prefix}-skip-release`, outcome.skipRelease);
 
     if (outcome.releasePr) {
-      setOutput(`${prefix}_pr_enabled`, outcome.releasePr.enabled);
-      setOutput(`${prefix}_pr_action`, outcome.releasePr.action);
-      setOutput(`${prefix}_pr_branch`, outcome.releasePr.branch || '');
-      setOutput(`${prefix}_pr_title`, outcome.releasePr.title || '');
-      setOutput(`${prefix}_pr_number`, String(outcome.releasePr.number) || '');
-      setOutput(`${prefix}_pr_url`, outcome.releasePr.url || '');
+      core.setOutput(`${prefix}-pr-enabled`, outcome.releasePr.enabled);
+      core.setOutput(`${prefix}-pr-action`, outcome.releasePr.action);
+      core.setOutput(`${prefix}-pr-branch`, outcome.releasePr.branch || '');
+      core.setOutput(`${prefix}-pr-title`, outcome.releasePr.title || '');
+      core.setOutput(`${prefix}-pr-number`, String(outcome.releasePr.number) || '');
+      core.setOutput(`${prefix}-pr-url`, outcome.releasePr.url || '');
     }
   });
 };
 
-export const summary = (prOutcomes: TargetResult[]) => {
+export const summary = (results: TargetResult[]) => {
   const overviewTable = `| Target | Changed | Commits | Current Version | Next Version | PR Action |
 | --- | --- | --- | --- | --- | --- |
-${prOutcomes
+${results
   .map(
     (outcome) =>
       `| ${outcome.label} | ${outcome.changed ? 'Yes' : 'No'} | ${outcome.commitCount} | ${outcome.currentVersion} | ${outcome.nextVersion} | ${
@@ -61,7 +74,7 @@ ${prOutcomes
 `;
 
   const pullRequestsTables = `
-${prOutcomes
+${results
   .map(
     (outcome) => `${
       outcome.releasePr
@@ -86,5 +99,5 @@ ${overviewTable}
 ${pullRequestsTables}
 `;
 
-  actionSummary.addRaw(body, true).write();
+  core.summary.addRaw(body, true).write();
 };

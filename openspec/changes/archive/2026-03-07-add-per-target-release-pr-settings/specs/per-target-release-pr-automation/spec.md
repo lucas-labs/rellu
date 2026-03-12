@@ -1,18 +1,18 @@
 ## MODIFIED Requirements
 
 ### Requirement: Release PR behavior SHALL be explicitly opt-in
-The system SHALL create or update release PRs only when release PR mode is enabled. Release PR mode MAY be enabled globally via `create-release-prs=true` and MAY be overridden per target via optional target `releasePr.enabled` settings.
+The system SHALL create or update release PRs only when release PR mode is enabled. Release PR mode MAY be enabled globally via `create-release-pr=true` and MAY be overridden per target via optional target `releasePr.enabled` settings.
 
 #### Scenario: Release PR mode is disabled globally
-- **WHEN** the action runs with `create-release-prs=false`
+- **WHEN** the action runs with `create-release-pr=false`
 - **THEN** no release branch or PR create/update operations are executed
 
 #### Scenario: Target opts out while global release PR mode is enabled
-- **WHEN** `create-release-prs=true` and target `app-2` sets `releasePr.enabled=false`
+- **WHEN** `create-release-pr=true` and target `app-2` sets `releasePr.enabled=false`
 - **THEN** no release branch or PR create/update operations are executed for `app-2`
 
 #### Scenario: Target opts in while global release PR mode is enabled
-- **WHEN** `create-release-prs=true` and target `app-1` has `releasePr.enabled=true` or no target override
+- **WHEN** `create-release-pr=true` and target `app-1` has `releasePr.enabled=true` or no target override
 - **THEN** release branch and PR operations are allowed for `app-1` when it is releasable
 
 ### Requirement: Release branch naming SHALL be deterministic per target

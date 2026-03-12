@@ -380,7 +380,7 @@ Optional:
 
 ## Optional Release PR Mode
 
-When `create-release-prs=true`, Rellu must create or update one release PR per changed target that has a releasable version bump.
+When `create-release-pr=true`, Rellu must create or update one release PR per changed target that has a releasable version bump.
 
 ### Release PR Branch Strategy
 For each target, release PRs should use a stable branch name:

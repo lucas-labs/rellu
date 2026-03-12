@@ -1,6 +1,6 @@
 ## Context
 
-The current schema has global release PR controls (`create-release-prs`, `release-branch-prefix`, `base-branch`) and does not allow per-target overrides, while the project description requires optional release PR behavior settings on each app target. This makes mixed-release monorepos hard to operate because targets that should opt out or use different branch/base settings cannot be modeled directly.
+The current schema has global release PR controls (`create-release-pr`, `release-branch-prefix`, `base-branch`) and does not allow per-target overrides, while the project description requires optional release PR behavior settings on each app target. This makes mixed-release monorepos hard to operate because targets that should opt out or use different branch/base settings cannot be modeled directly.
 
 ## Goals / Non-Goals
 

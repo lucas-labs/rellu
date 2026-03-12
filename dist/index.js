@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
 import * as os$1 from "os";
 import os, { EOL } from "os";
+import * as crypto from "crypto";
 import * as fs$2 from "fs";
 import { constants, existsSync, promises, readFileSync } from "fs";
 import * as path$1 from "path";
@@ -140,6 +141,22 @@ function escapeData(s) {
 }
 function escapeProperty(s) {
 	return toCommandValue(s).replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A").replace(/:/g, "%3A").replace(/,/g, "%2C");
+}
+
+//#endregion
+//#region node_modules/@actions/core/lib/file-command.js
+function issueFileCommand(command, message) {
+	const filePath = process.env[`GITHUB_${command}`];
+	if (!filePath) throw new Error(`Unable to find environment variable for file command ${command}`);
+	if (!fs$2.existsSync(filePath)) throw new Error(`Missing file at path: ${filePath}`);
+	fs$2.appendFileSync(filePath, `${toCommandValue(message)}${os$1.EOL}`, { encoding: "utf8" });
+}
+function prepareKeyValueMessage(key, value) {
+	const delimiter = `ghadelimiter_${crypto.randomUUID()}`;
+	const convertedValue = toCommandValue(value);
+	if (key.includes(delimiter)) throw new Error(`Unexpected input: name should not contain the delimiter "${delimiter}"`);
+	if (convertedValue.includes(delimiter)) throw new Error(`Unexpected input: value should not contain the delimiter "${delimiter}"`);
+	return `${key}<<${delimiter}${os$1.EOL}${convertedValue}${os$1.EOL}${delimiter}`;
 }
 
 //#endregion
@@ -16089,6 +16106,7 @@ var Summary = class {
 	}
 };
 const _summary = new Summary();
+const summary$1 = _summary;
 
 //#endregion
 //#region node_modules/@actions/io/lib/io-util.js
@@ -16835,6 +16853,17 @@ function getInput$1(name, options) {
 	if (options && options.required && !val) throw new Error(`Input required and not supplied: ${name}`);
 	if (options && options.trimWhitespace === false) return val;
 	return val.trim();
+}
+/**
+* Sets the value of an output.
+*
+* @param     name     name of the output to set
+* @param     value    value to store. Non-string values will be converted to a string via JSON.stringify
+*/
+function setOutput(name, value) {
+	if (process.env["GITHUB_OUTPUT"] || "") return issueFileCommand("OUTPUT", prepareKeyValueMessage(name, value));
+	process.stdout.write(os$1.EOL);
+	issueCommand("set-output", { name }, toCommandValue(value));
 }
 /**
 * Sets the action status to failed.
@@ -23310,7 +23339,7 @@ const defaultBumpRules = {
 	style: "none"
 };
 const ReleasePrConfigSchema = object({
-	enabled: boolean().describe("Whether to create/update a live release pull request"),
+	enabled: boolean().optional().describe("Whether to create/update a live release pull request. If omitted, the target inherits the global create-release-pr setting."),
 	branchPrefix: string().optional().describe("An optional prefix for the release PR branch name (e.g. \"rellu/app1/\")"),
 	baseBranch: string().optional().describe("The base branch to use for the release PR (defaults to the default branch of the repository)")
 });
@@ -23330,7 +23359,7 @@ const TargetSchema = object({
 	}, "Invalid glob pattern in target paths").describe("List of file paths or glob patterns to watch for changes"),
 	version: VersionSource.describe("Configuration for how to extract version information for this target"),
 	tagPrefix: string().default("v").describe("An optional prefix to find tags that represent versions for this target (e.g. \"foo@v\" to match tags like \"foo@v1.2.3\")"),
-	releasePr: ReleasePrConfigSchema.describe("Configuration for the release pull request to create/update for this target").default({ enabled: false })
+	releasePr: ReleasePrConfigSchema.describe("Optional per-target overrides for release pull request behavior").optional()
 });
 const ChangelogConfigSchema = object({
 	categoryMap: record(string(), string()).default({
@@ -23369,7 +23398,7 @@ const RelluActionInputsSchema = object({
 	githubToken: string().optional(),
 	fromRef: string().optional(),
 	toRef: string().optional().default("HEAD"),
-	rangeStrategy: _enum(rangeStrategy).default("explicit"),
+	rangeStrategy: _enum(rangeStrategy).default("latest-tag"),
 	strictConventionalCommits: boolean().default(false),
 	noBumpPolicy: _enum(noBumpPolicies).default("skip"),
 	createReleasePr: boolean().default(false),
@@ -27784,6 +27813,73 @@ const analyze = async (rellu) => {
 };
 
 //#endregion
+//#region src/utils/output.ts
+const buildActionOutputs = (analysis) => {
+	const { results } = analysis;
+	return {
+		countProcessed: results.length,
+		prUpdated: results.reduce((count, outcome) => count + (outcome.releasePr?.action === "updated" ? 1 : 0), 0),
+		prCreated: results.reduce((count, outcome) => count + (outcome.releasePr?.action === "created" ? 1 : 0), 0),
+		changedTargets: JSON.stringify(results.filter((r) => r.changed).map((r) => r.label)),
+		hasChanges: results.some((r) => r.changed),
+		resultJson: JSON.stringify(analysis)
+	};
+};
+const setOutputs = (analysis) => {
+	const { results } = analysis;
+	const outputs = buildActionOutputs(analysis);
+	setOutput("count-processed", outputs.countProcessed);
+	setOutput("pr-updated", outputs.prUpdated);
+	setOutput("pr-created", outputs.prCreated);
+	setOutput("changed-targets", outputs.changedTargets);
+	setOutput("has-changes", outputs.hasChanges);
+	setOutput("result-json", outputs.resultJson);
+	results.forEach((outcome) => {
+		const prefix = `${outcome.label}`;
+		setOutput(`${prefix}-label`, outcome.label);
+		setOutput(`${prefix}-changed`, outcome.changed);
+		setOutput(`${prefix}-matched-files`, JSON.stringify(outcome.matchedFiles));
+		setOutput(`${prefix}-commit-count`, outcome.commitCount);
+		setOutput(`${prefix}-current-version`, outcome.currentVersion);
+		setOutput(`${prefix}-next-version`, outcome.nextVersion);
+		setOutput(`${prefix}-bump`, outcome.bump);
+		setOutput(`${prefix}-commits`, JSON.stringify(outcome.commits.map((commit) => commit.sha)));
+		setOutput(`${prefix}-changelog`, outcome.changelog.markdown);
+		setOutput(`${prefix}-version-source-file`, outcome.versionSource.file);
+		setOutput(`${prefix}-skip-release`, outcome.skipRelease);
+		if (outcome.releasePr) {
+			setOutput(`${prefix}-pr-enabled`, outcome.releasePr.enabled);
+			setOutput(`${prefix}-pr-action`, outcome.releasePr.action);
+			setOutput(`${prefix}-pr-branch`, outcome.releasePr.branch || "");
+			setOutput(`${prefix}-pr-title`, outcome.releasePr.title || "");
+			setOutput(`${prefix}-pr-number`, String(outcome.releasePr.number) || "");
+			setOutput(`${prefix}-pr-url`, outcome.releasePr.url || "");
+		}
+	});
+};
+const summary = (results) => {
+	const body = `## Rellu Release Summary
+
+Rellu was executed with the following outcomes:
+
+${`| Target | Changed | Commits | Current Version | Next Version | PR Action |
+| --- | --- | --- | --- | --- | --- |
+${results.map((outcome) => `| ${outcome.label} | ${outcome.changed ? "Yes" : "No"} | ${outcome.commitCount} | ${outcome.currentVersion} | ${outcome.nextVersion} | ${outcome.releasePr?.action || "N/A"} |`).join("\n")}
+`}
+
+### Pull Request Details
+
+${`
+${results.map((outcome) => `${outcome.releasePr ? `| Enabled | Action | Branch | Title | Number | URL |
+| --- | --- | --- | --- | --- | --- |
+| ${outcome.releasePr.enabled ? "Yes" : "No"} | ${outcome.releasePr.action} | ${outcome.releasePr.branch || "N/A"} | ${outcome.releasePr.title || "N/A"} | ${outcome.releasePr.number ?? "N/A"} | ${outcome.releasePr.url || "N/A"} |
+` : "No pull request information available."}
+`).join("\n")}`}
+`;
+	summary$1.addRaw(body, true).write();
+};
+
+//#endregion
 //#region src/action/run.ts
 /** main entry point for the action */
 const run = async () => {
@@ -27791,15 +27887,21 @@ const run = async () => {
 	log.info("Loaded configuration:", config);
 	const analysis = await analyze(config);
 	log.info(`Analysis complete. Range=${analysis.range} commits=${analysis.commitCount}`);
-	const prOutcomes = [];
-	let anyCreatedOrUpdated = false;
+	const results = [];
 	if (config.inputs.createReleasePr) for (const target of analysis.results) try {
 		const result = await maybeManageReleasePr(config, target);
-		anyCreatedOrUpdated = anyCreatedOrUpdated || result.releasePr?.enabled === true;
-		prOutcomes.push(result);
+		results.push(result);
 	} catch (error) {
 		log.err(`Failed to manage release PR for target ${target.label}:`, error);
 	}
+	else results.push(...analysis.results);
+	setOutputs({
+		range: analysis.range,
+		commitCount: analysis.commitCount,
+		results
+	});
+	summary(results);
+	log.info(`🎉 Done.`);
 };
 
 //#endregion

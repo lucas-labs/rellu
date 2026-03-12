@@ -30,7 +30,7 @@ inputs:
     description: |
       The git ref to compare against when determining what changes to include (default: HEAD).
 
-  create-release-prs:
+  create-release-pr:
     required: false
     default: "false"
     description: | 
@@ -81,14 +81,18 @@ inputs:
     required: false
 
 outputs:
+  count-processed:
+    description: "Number of processed targets"
+  pr-updated:
+    description: "count of targets for which an existing PR was updated"
+  pr-created:
+    description: "count of targets for which a new PR was created"
   changed-targets:
     description: "JSON array of changed target labels"
   has-changes:
     description: "true if at least one target changed"
   result-json:
     description: "Full JSON analysis result"
-  release-prs-created:
-    description: "true if release PR mode created or updated at least one PR"
 
 runs:
   using: "node20"
