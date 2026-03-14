@@ -4,6 +4,19 @@ import os from 'node:os';
 import path from 'node:path';
 
 type Inputs = Record<string, string>;
+type CoreMockState = {
+  inputs: Inputs;
+  getInput: ReturnType<typeof mock>;
+  setOutput: ReturnType<typeof mock>;
+  setFailed: ReturnType<typeof mock>;
+  info: ReturnType<typeof mock>;
+  warning: ReturnType<typeof mock>;
+  error: ReturnType<typeof mock>;
+  debug: ReturnType<typeof mock>;
+  summaryAddRaw: ReturnType<typeof mock>;
+  summaryWrite: ReturnType<typeof mock>;
+};
+
 const BASE_TARGET = {
   label: 'app-1',
   paths: ['apps/app1/**/*'],
@@ -12,6 +25,47 @@ const BASE_TARGET = {
     type: 'node-package-json',
   },
 } as const;
+
+const coreState = {} as CoreMockState;
+
+export const resetCoreMock = (inputs: Inputs = {}) => {
+  coreState.inputs = inputs;
+  coreState.getInput = mock((name: string) => coreState.inputs[name] ?? '');
+  coreState.setOutput = mock((_name: string, _value: unknown) => {});
+  coreState.setFailed = mock((_message: unknown) => {});
+  coreState.info = mock((_message: string, ..._args: any[]) => {});
+  coreState.warning = mock((_message: string, ..._args: any[]) => {});
+  coreState.error = mock((_message: string, ..._args: any[]) => {});
+  coreState.debug = mock((_message: string, ..._args: any[]) => {});
+  coreState.summaryWrite = mock(() => Promise.resolve());
+  coreState.summaryAddRaw = mock((_body: string, _overwrite?: boolean) => ({
+    write: coreState.summaryWrite,
+  }));
+
+  return coreState;
+};
+
+resetCoreMock();
+
+const coreModule = {
+  getInput: (name: string) => coreState.getInput(name),
+  setOutput: (name: string, value: unknown) => coreState.setOutput(name, value),
+  setFailed: (message: unknown) => coreState.setFailed(message),
+  info: (message: string, ...args: any[]) => coreState.info(message, ...args),
+  warning: (message: string, ...args: any[]) => coreState.warning(message, ...args),
+  error: (message: string, ...args: any[]) => coreState.error(message, ...args),
+  debug: (message: string, ...args: any[]) => coreState.debug(message, ...args),
+  summary: {
+    addRaw: (body: string, overwrite?: boolean) => coreState.summaryAddRaw(body, overwrite),
+  },
+};
+
+export const installCoreMock = async () => {
+  await mock.module('@actions/core', () => coreModule);
+  return coreState;
+};
+
+export const getCoreMock = () => coreState;
 
 export async function writeConfigFile(
   config: Record<string, unknown>,
@@ -34,17 +88,13 @@ export async function mockCore(inputs: Inputs, configOverrides: Record<string, u
     ...configOverrides,
   });
 
-  await mock.module('@actions/core', () => ({
-    getInput: (name: string) => {
-      const i: Inputs = {
-        'config-file': configPath || 'config.json',
-        repo: 'owner/repo',
-        'base-branch': 'main',
-        ...inputs,
-      };
-      return i[name] ?? '';
-    },
-  }));
+  await installCoreMock();
+  resetCoreMock({
+    'config-file': configPath || 'config.json',
+    repo: 'owner/repo',
+    'base-branch': 'main',
+    ...inputs,
+  });
 
   return cleanup;
 }

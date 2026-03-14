@@ -16907,30 +16907,50 @@ function info(message) {
 
 //#endregion
 //#region src/utils/logger.ts
-/** converts all arguments to a single string message */
-const getMessage = (message, ...args) => {
-	if (args.length === 0) return message;
-	return `${message} ${args.map((arg) => {
-		if (typeof arg === "object") try {
-			return JSON.stringify(arg, null, 2);
+const ERROR_KEYS = new Set([
+	"name",
+	"message",
+	"stack",
+	"cause"
+]);
+const formatValue = (value, seen = /* @__PURE__ */ new WeakSet()) => {
+	if (value instanceof Error) {
+		const lines = [value.stack || `${value.name}: ${value.message}`];
+		const extras = Object.fromEntries(Object.entries(value).filter(([key]) => !ERROR_KEYS.has(key)));
+		if (Object.keys(extras).length > 0) lines.push(JSON.stringify(extras, null, 2));
+		if (value.cause !== void 0) lines.push(`Caused by: ${formatValue(value.cause, seen)}`);
+		return lines.join("\n");
+	}
+	if (value && typeof value === "object") {
+		if (seen.has(value)) return "[Circular]";
+		seen.add(value);
+		try {
+			return JSON.stringify(value, null, 2);
 		} catch {
-			return String(arg);
+			return String(value);
+		} finally {
+			seen.delete(value);
 		}
-		return String(arg);
-	}).join(" ")}`;
+	}
+	return String(value);
+};
+const formatEntry = (level, message, ...args) => {
+	const prefix = `[${(/* @__PURE__ */ new Date()).toISOString()}] [${level}] `;
+	const continuationPrefix = " ".repeat(prefix.length);
+	return (args.length === 0 ? message : `${message} ${args.map((arg) => formatValue(arg)).join(" ")}`).split("\n").map((line, index) => `${index === 0 ? prefix : continuationPrefix}${line}`).join("\n");
 };
 const log = {
 	info(message, ...args) {
-		info(getMessage(message, ...args));
+		info(formatEntry("INFO", message, ...args));
 	},
 	warn(message, ...args) {
-		warning(getMessage(message, ...args));
+		warning(formatEntry("WARN", message, ...args));
 	},
 	err(message, ...args) {
-		error(getMessage(message, ...args));
+		error(formatEntry("ERROR", message, ...args));
 	},
 	dbg(message, ...args) {
-		debug(getMessage(message, ...args));
+		debug(formatEntry("DEBUG", message, ...args));
 	}
 };
 
@@ -27468,6 +27488,7 @@ const maybeManageReleasePr = async (relluConfig, target) => {
 			releasePr
 		};
 	} catch (error) {
+		if (error instanceof Error) throw new Error(`Failed managing release PR for target "${target.label}": ${error.message}`, { cause: error });
 		throw new Error(`Failed managing release PR for target "${target.label}": ${String(error)}`);
 	}
 };

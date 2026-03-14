@@ -228,6 +228,15 @@ export const maybeManageReleasePr = async (
     const releasePr = await createOrUpdateReleasePr(target, settings, relluConfig);
     return { ...target, releasePr };
   } catch (error) {
+    if (error instanceof Error) {
+      throw new Error(
+        `Failed managing release PR for target "${target.label}": ${error.message}`,
+        {
+        cause: error,
+        },
+      );
+    }
+
     throw new Error(
       `Failed managing release PR for target "${target.label}": ${String(error)}`,
     );
