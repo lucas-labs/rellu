@@ -1,6 +1,5 @@
 {
   "compilerOptions": {
-    "baseUrl": ".",
     "lib": ["ESNext"],
     "target": "ESNext",
     "module": "es2022",
@@ -21,7 +20,8 @@
     "moduleResolution": "bundler",
     "noEmit": true,
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["./src/*"],
+      "tests/*": ["./tests/*"]
     }
   },
   "include": ["src/**/*.ts"]
