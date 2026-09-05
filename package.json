@@ -4,7 +4,7 @@
   "private": true,
   "description": "Rellu - monorepo release analysis GitHub Action",
   "type": "module",
-  "packageManager": "bun@1.2.2",
+  "packageManager": "bun@1.4.2",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsdown \"src/index.ts\" --config \"tsdown.config.ts\" --out-dir \"dist\" && bun run scripts/create-schemas.ts",
